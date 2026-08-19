@@ -4,7 +4,7 @@
 
 **Status:** Draft
 **Version:** 0.1.0
-**Language:** C11/C17
+**Language:** C17/C23
 **Primary Goal:** Cross-platform, GPU-agnostic game engine foundation
 **Document Purpose:** Architectural source of truth for documentation, implementation planning, and autonomous task generation.
 
@@ -64,7 +64,7 @@ The engine should ultimately be capable of running the same engine/game code wit
 The project MUST:
 
 * be written primarily in C;
-* target C11 or later, preferably C17;
+* target C17 or later, preferably C23;
 * provide a stable internal C API;
 * be independent of operating-system APIs at the engine-core level;
 * be independent of graphics APIs at the renderer level;
@@ -1527,7 +1527,7 @@ Public API MUST:
 The project SHOULD follow:
 
 ```text
-C11/C17
+C17/C23
 4-space indentation
 snake_case for functions
 PascalCase or explicit convention for types

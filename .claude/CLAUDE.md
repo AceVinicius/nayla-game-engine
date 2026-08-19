@@ -1,6 +1,6 @@
 # Portable Game Engine
 
-C23 portable game engine.
+C17/C23 portable game engine.
 
 ## Architecture
 
