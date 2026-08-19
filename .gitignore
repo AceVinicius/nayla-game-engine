@@ -1,0 +1,603 @@
+# ============================================================
+# Portable Game Engine
+# Root .gitignore
+# ============================================================
+
+# ------------------------------------------------------------
+# OS / Filesystem
+# ------------------------------------------------------------
+
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+.AppleDouble
+.LSOverride
+
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+$RECYCLE.BIN/
+
+# ------------------------------------------------------------
+# Editors / IDEs
+# ------------------------------------------------------------
+
+# VS Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# JetBrains
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Xcode
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+
+# CLion
+cmake-build-*/
+
+# Vim
+*.swp
+*.swo
+*~
+*.vim_runtime
+
+# Emacs
+.#*
+\#*\#
+*.elc
+
+# ------------------------------------------------------------
+# Claude / AI runtime artifacts
+# ------------------------------------------------------------
+
+# Keep the project's authored Claude configuration tracked:
+#   .claude/CLAUDE.md
+#   .claude/agents/
+#   .claude/rules/
+#   .claude/workflows/
+#
+# Ignore only local/runtime state.
+
+.claude/local/
+.claude/cache/
+.claude/tmp/
+.claude/logs/
+.claude/runtime/
+.claude/worktrees/
+
+# Local AI-generated scratch files
+.ai/
+.ai-cache/
+.ai-tmp/
+
+# ------------------------------------------------------------
+# Build directories
+# ------------------------------------------------------------
+
+build/
+build-*/
+out/
+out-*/
+dist/
+bin/
+obj/
+lib/
+Debug/
+Release/
+RelWithDebInfo/
+MinSizeRel/
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+Makefile
+install_manifest.txt
+compile_commands.json
+
+# CMake generated directories/files
+cmake-build-*/
+_cmake/
+CMakeUserPresets.json
+
+# Ninja
+.ninja_deps
+.ninja_log
+
+# Meson
+.meson/
+meson-private/
+meson-logs/
+meson-info/
+
+# ------------------------------------------------------------
+# C / C++ build artifacts
+# ------------------------------------------------------------
+
+*.o
+*.obj
+*.lo
+*.a
+*.la
+*.so
+*.so.*
+*.dylib
+*.dll
+*.lib
+*.exp
+*.exe
+*.out
+*.app
+
+# Debug symbols
+*.dSYM/
+*.pdb
+*.ilk
+*.idb
+
+# Precompiled headers
+*.gch
+*.pch
+
+# Coverage
+*.gcda
+*.gcno
+*.gcov
+coverage/
+coverage-*/
+
+# ------------------------------------------------------------
+# CMake local configuration
+# ------------------------------------------------------------
+
+CMakeUserPresets.json
+
+# Keep repository presets tracked:
+# CMakePresets.json
+
+# ------------------------------------------------------------
+# Package managers / dependencies
+# ------------------------------------------------------------
+
+# vcpkg
+.vcpkg/
+vcpkg_installed/
+
+# Conan
+.conan/
+conan.lock
+conanbuild.*
+conaninfo.*
+conanmanifest.txt
+conan_data.yml
+conan_home/
+
+# FetchContent / downloaded dependencies
+_deps/
+deps/_build/
+third_party/_build/
+
+# ------------------------------------------------------------
+# Package / dependency caches
+# ------------------------------------------------------------
+
+.cache/
+.cache-*/
+tmp/
+temp/
+
+# ------------------------------------------------------------
+# Logs
+# ------------------------------------------------------------
+
+*.log
+*.log.*
+logs/
+
+# Keep intentional documentation examples/log fixtures by
+# explicitly force-adding them if necessary.
+
+# ------------------------------------------------------------
+# Test output
+# ------------------------------------------------------------
+
+test-results/
+test-results-*/
+test-output/
+test-output-*/
+test-reports/
+junit.xml
+*.trx
+
+# Generated test artifacts
+test-artifacts/
+tests/artifacts/
+tests/output/
+
+# ------------------------------------------------------------
+# Profiling / performance artifacts
+# ------------------------------------------------------------
+
+*.prof
+*.profraw
+*.profdata
+*.perf
+*.trace
+*.spall
+*.json.gz
+
+profiling/
+profiles/
+perf/
+performance-results/
+
+# ------------------------------------------------------------
+# Crash dumps
+# ------------------------------------------------------------
+
+*.dmp
+*.core
+core
+core.*
+crash/
+crashes/
+
+# ------------------------------------------------------------
+# GPU / graphics debugging artifacts
+# ------------------------------------------------------------
+
+# RenderDoc
+*.rdc
+
+# PIX
+*.wpix
+
+# Nsight
+*.nsight-capture
+*.nsight-gfx-capture
+
+# Xcode GPU captures
+*.gputrace
+
+# Vulkan validation / layer logs
+vk_layer_settings.txt
+vulkan.log
+
+# Shader compiler temporary output
+*.spv.tmp
+*.shader.tmp
+shader-cache/
+shader-cache-*/
+
+# ------------------------------------------------------------
+# Generated shader binaries
+# ------------------------------------------------------------
+
+# If shaders are source-of-truth assets, generated binaries
+# should generally not be committed.
+
+*.spv
+*.dxil
+*.cso
+*.metallib
+
+# ------------------------------------------------------------
+# Engine runtime generated data
+# ------------------------------------------------------------
+
+runtime/
+runtime-data/
+saved/
+saves/
+cache/
+caches/
+temp/
+tmp/
+
+# Generated asset databases
+*.assetdb
+*.assetcache
+*.importcache
+
+# ------------------------------------------------------------
+# Generated engine data
+# ------------------------------------------------------------
+
+generated/
+generated-code/
+generated-assets/
+
+# ------------------------------------------------------------
+# Game / engine runtime files
+# ------------------------------------------------------------
+
+*.sav
+*.save
+*.replay
+
+# ------------------------------------------------------------
+# Local configuration
+# ------------------------------------------------------------
+
+# Local-only configuration
+*.local
+*.local.*
+.local/
+local/
+
+# Environment files
+.env
+.env.*
+!.env.example
+!.env.template
+
+# ------------------------------------------------------------
+# Secrets / credentials
+# ------------------------------------------------------------
+
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+
+credentials.json
+credentials.local.json
+secrets.json
+secrets.local.json
+
+# ------------------------------------------------------------
+# Documentation build output
+# ------------------------------------------------------------
+
+site/
+public/
+docs/_build/
+docs/build/
+docs/site/
+docs/.cache/
+
+# Keep authored documentation:
+# docs/spec/
+# docs/architecture/
+# docs/adr/
+
+# ------------------------------------------------------------
+# Task system
+# ------------------------------------------------------------
+
+# Keep task definitions/state tracked:
+# tasks/backlog/
+# tasks/ready/
+# tasks/active/
+# tasks/review/
+# tasks/changes_requested/
+# tasks/done/
+
+# Ignore temporary task artifacts
+tasks/.cache/
+tasks/.tmp/
+tasks/tmp/
+tasks/generated/
+
+# ------------------------------------------------------------
+# Generated reports
+# ------------------------------------------------------------
+
+reports/
+reports/generated/
+reports/tmp/
+
+# ------------------------------------------------------------
+# Archives generated locally
+# ------------------------------------------------------------
+
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.rar
+
+# ------------------------------------------------------------
+# Python tooling (if used by the development factory)
+# ------------------------------------------------------------
+
+__pycache__/
+*.py[cod]
+*$py.class
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.pytype/
+
+.venv/
+venv/
+env/
+ENV/
+
+pip-wheel-metadata/
+*.egg-info/
+.eggs/
+
+# ------------------------------------------------------------
+# Node tooling (if used by tooling/orchestrator)
+# ------------------------------------------------------------
+
+node_modules/
+.npm/
+.pnpm-store/
+.yarn/
+.yarn-cache/
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ------------------------------------------------------------
+# Go tooling (if orchestrator is written in Go)
+# ------------------------------------------------------------
+
+# Keep go.sum tracked.
+# Ignore only local build/output artifacts.
+
+*.test
+*.out
+
+# ------------------------------------------------------------
+# Rust tooling (if auxiliary tooling is written in Rust)
+# ------------------------------------------------------------
+
+target/
+
+# ------------------------------------------------------------
+# Java / JVM tooling (if auxiliary tooling is used)
+# ------------------------------------------------------------
+
+.gradle/
+.gradle-cache/
+build.gradle.local
+*.class
+
+# ------------------------------------------------------------
+# Generated databases
+# ------------------------------------------------------------
+
+*.sqlite
+*.sqlite3
+*.db
+
+# ------------------------------------------------------------
+# Local Docker artifacts
+# ------------------------------------------------------------
+
+.docker/
+docker-data/
+docker-cache/
+
+# ------------------------------------------------------------
+# Operating-system specific generated files
+# ------------------------------------------------------------
+
+*.stackdump
+
+# Windows minidumps
+*.wer
+
+# ------------------------------------------------------------
+# Temporary / backup files
+# ------------------------------------------------------------
+
+*.bak
+*.backup
+*.old
+*.orig
+*.tmp
+*.temp
+
+*.rej
+*.patch~
+
+# ------------------------------------------------------------
+# Merge / editor leftovers
+# ------------------------------------------------------------
+
+*.BASE
+*.LOCAL
+*.REMOTE
+*.BACKUP
+
+# ------------------------------------------------------------
+# Generated compile databases / tooling
+# ------------------------------------------------------------
+
+compile_commands.json
+compile_flags.txt
+
+# ------------------------------------------------------------
+# Local benchmarking output
+# ------------------------------------------------------------
+
+benchmarks/results/
+benchmarks/output/
+benchmark-results/
+benchmark-output/
+
+# ------------------------------------------------------------
+# Local documentation exports
+# ------------------------------------------------------------
+
+*.pdf
+*.docx
+*.pptx
+
+# If the repository intentionally stores these artifacts,
+# force-add them with:
+# git add -f path/to/file
+
+# ------------------------------------------------------------
+# Local AI / agent scratch
+# ------------------------------------------------------------
+
+*.agent.tmp
+*.agent.log
+*.agent.json
+.agent/
+agent-cache/
+agent-output/
+agent-logs/
+
+# ------------------------------------------------------------
+# Local orchestration state
+# ------------------------------------------------------------
+
+.orchestrator/
+orchestrator-cache/
+orchestrator-runtime/
+orchestrator-logs/
+
+# Keep deterministic, committed task state under:
+# tasks/
+
+# ------------------------------------------------------------
+# OS-specific build output
+# ------------------------------------------------------------
+
+# macOS
+DerivedData/
+.build/
+
+# Linux
+*.so
+*.so.*
+
+# Windows
+*.dll
+*.exe
+*.pdb
+*.ilk
