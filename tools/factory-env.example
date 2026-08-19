@@ -1,0 +1,4 @@
+# Copy locally to tools/factory-env; do not commit.
+# export FACTORY_MAX_LINES=120
+# export FACTORY_MAX_DIFF_LINES=500
+# export FACTORY_MAX_SEARCH_LINES=120

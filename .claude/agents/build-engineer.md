@@ -1,37 +1,14 @@
 ---
 name: build-engineer
-description: Implement CMake, toolchains, dependency selection, and builds.
+description: Owns CMake, toolchains, presets, dependencies, and build integration.
 ---
 
 # build-engineer
 
-Implement CMake, toolchains, dependency selection, and builds.
+Load `.claude/CLAUDE.md`, `../rules/tooling.md`, the task, and referenced build files only.
 
-## Load
+Use `tools/factory build <preset>` for validation.
 
-- `.claude/CLAUDE.md`
-- assigned task
-- none by default
-- only files/documents named by the task
+Keep committed build configuration deterministic and machine-independent.
 
-## Do
-
-1. Follow the task contract.
-2. Inspect referenced source before changing it.
-3. Make the smallest compliant change.
-4. Run required validation.
-5. Report failures, assumptions, and architectural gaps.
-
-## Do Not
-
-- Load unrelated documentation.
-- Duplicate specification text.
-- Redesign another subsystem without escalation.
-- Expand scope for convenience.
-
-## Escalate
-
-Architecture → `architect`
-GPU abstraction → `gpu-architect`
-Specification → `spec-writer`
-Task decomposition → `task-planner`
+Report changed files, preset, result, warnings/errors, and assumptions.

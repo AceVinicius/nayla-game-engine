@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cmd="${1:-help}"; shift || true
+
+has(){ command -v "$1" >/dev/null 2>&1; }
+
+say(){ printf '%s\n' "$*"; }
+
+usage(){ cat <<'EOF'
+factory - concise repository tooling
+  factory status
+  factory diff [--stat|--name-only]
+  factory build <preset>
+  factory test <preset>
+  factory search <pattern> [path]
+  factory inspect <path>
+  factory task <task-id>
+EOF
+}
+
+status_cmd(){
+  cd "$ROOT"; branch="$(git branch --show-current 2>/dev/null || true)"
+  dirty="$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
+  say "BRANCH  ${branch:-detached}"; say "CHANGES $dirty"
+  [ "$dirty" -eq 0 ] || { git status --short | head -40; [ "$dirty" -le 40 ] || say "... truncated"; }
+}
+
+diff_cmd(){
+  cd "$ROOT"; mode="${1:-}"
+  case "$mode" in
+    --stat) git diff --stat ;;
+    --name-only) git diff --name-only ;;
+    *) if has delta; then git diff | delta --paging=never; else git diff --minimal | head -500; fi ;;
+  esac
+}
+
+build_cmd(){
+  preset="${1:?missing preset}"; cd "$ROOT"
+  has cmake || { say "ERROR cmake unavailable"; exit 1; }
+  say "CONFIGURE $preset"; cmake --preset "$preset" 2>&1 | tail -25
+  say "BUILD $preset"; cmake --build --preset "$preset" 2>&1 | tail -40
+  say "RESULT PASS"
+}
+
+test_cmd(){
+  preset="${1:?missing preset}"; cd "$ROOT"
+  has ctest || { say "ERROR ctest unavailable"; exit 1; }
+  if out="$(ctest --preset "$preset" --output-on-failure 2>&1)"; then
+    printf '%s\n' "$out" | tail -60; say "RESULT PASS"
+  else
+    printf '%s\n' "$out" | tail -100; say "RESULT FAIL"; exit 1
+  fi
+}
+
+search_cmd(){
+  pattern="${1:?missing pattern}"; path="${2:-.}"; cd "$ROOT"
+  if has rg; then
+    rg -n --hidden -g '!build/**' -g '!build-*/**' -g '!out/**' -g '!node_modules/**' -g '!.git/**' "$pattern" "$path" | head -120
+  else
+    grep -RIn --exclude-dir=.git --exclude-dir=build --exclude-dir=node_modules "$pattern" "$path" | head -120
+  fi
+}
+
+inspect_cmd(){
+  path="${1:?missing path}"; cd "$ROOT"
+  [ -e "$path" ] || { say "ERROR not found: $path"; exit 1; }
+  if [ -d "$path" ]; then
+    say "DIRECTORY $path"
+    if has rg; then rg --files "$path" | head -120; else find "$path" -maxdepth 3 -type f | head -120; fi
+    return
+  fi
+  bytes="$(wc -c < "$path" | tr -d ' ')"; lines="$(wc -l < "$path" | tr -d ' ')"
+  say "FILE $path"; say "SIZE $bytes bytes"; say "LINES $lines"
+  if [ "$lines" -le 240 ]; then cat "$path"; else sed -n '1,120p' "$path"; say "... truncated"; fi
+}
+
+task_cmd(){
+  id="${1:?missing task id}"; cd "$ROOT"
+  found="$(find tasks -type f \( -name "*${id}*" -o -name "${id}.md" \) 2>/dev/null | head -1 || true)"
+  [ -n "$found" ] || { say "TASK NOT FOUND $id"; exit 1; }
+  inspect_cmd "$found"
+}
+
+case "$cmd" in
+  status) status_cmd ;; diff) diff_cmd "${1:-}" ;; build) build_cmd "${1:-}" ;;
+  test) test_cmd "${1:-}" ;; search) search_cmd "${1:-}" "${2:-.}" ;;
+  inspect) inspect_cmd "${1:-}" ;; task) task_cmd "${1:-}" ;;
+  help|-h|--help) usage ;; *) say "ERROR unknown command: $cmd"; usage; exit 2 ;;
+esac
