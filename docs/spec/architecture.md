@@ -1,24 +1,6 @@
 # Architecture
 
-## Core Concept
-
-The game engine has **two hard boundaries** that ensure portability and clean separation of concerns:
-
-```
-Core (C code, no OS/GPU deps) ↔ Platform API ↔ OS Backends (Windows/Mac/Linux)
-                           ↔ GPU API ↔ Graphics Backends (Vulkan/D3D12/Metal)
-Renderer (GPU API only, no SDK types)
-```
-
-## Invariants
-
-1. **Core**: Portable C code with no OS or GPU SDK dependencies.
-2. **Renderer**: Uses only GPU API; no direct Vulkan/D3D12/Metal branching.
-3. **Public APIs**: Expose only engine-defined types, never SDK types.
-4. **Backends**: Opaque to core and renderer.
-5. **Ownership**: Explicit and passed through APIs.
-6. **Capabilities**: Queried, never assumed.
-7. **Architecture Changes**: Require ADRs; no implementation hacks.
+For the two hard boundaries and the seven Core Invariants, see `.claude/CLAUDE.md` — not duplicated here.
 
 ## Subsystems
 

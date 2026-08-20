@@ -8,4 +8,4 @@ Goals:
 - keep agents independent of RTK/Caveman;
 - fall back to standard tools when accelerators are unavailable.
 
-Agents should prefer `tools/factory` for status, diff, build, test, search, inspection, and task lookup.
+Agents should prefer `tools/factory` for status, build, test, search, and inspection.

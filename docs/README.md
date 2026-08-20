@@ -1,10 +1,10 @@
 # Documentation Navigation
 
-- `docs/spec/core/` → core contracts
-- `docs/spec/gpu/` → GPU contracts
-- `docs/spec/platform/` → platform contracts
-- `docs/spec/renderer/` → renderer contracts
-- `docs/architecture/` → subsystem architecture
-- `docs/adr/` → architectural decisions
+- `docs/spec/architecture.md` → condensed architecture (points to CLAUDE.md for invariants)
+- `docs/spec/specs.md` → full draft technical specification
+- `docs/architecture/` → context-loading and tooling-layer notes
+- `docs/adr/` → architectural decisions (none recorded yet)
+
+Per-subsystem contract docs (`docs/spec/core/`, `gpu/`, `platform/`, `renderer/`) are planned but not yet split out of `specs.md` — see `spec-writer`.
 
 Load only the documents referenced by the task.
