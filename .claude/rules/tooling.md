@@ -2,12 +2,10 @@
 
 Prefer:
 - `tools/factory status`
-- `tools/factory diff`
-- `tools/factory build <preset>`
-- `tools/factory test <preset>`
+- `tools/factory build {debug|release}`
+- `tools/factory test {unit|contract|integration|architecture|all}`
 - `tools/factory search <pattern>`
 - `tools/factory inspect <path>`
-- `tools/factory task <id>`
 
 Prefer concise output. Do not dump entire diffs, logs, large files, or generated directories.
 
