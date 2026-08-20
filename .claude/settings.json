@@ -3,7 +3,10 @@
     "allow": [
       "Bash(cmake:*)",
       "Bash(ctest:*)",
-      "Bash(git:*)"
+      "Bash(git:*)",
+      "Read",
+      "Bash(find:*)",
+      "Bash(grep:*)"
     ]
   }
 }

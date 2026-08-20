@@ -19,11 +19,4 @@ Prefer:
 - 1 relevant spec;
 - specific source files.
 
-Do not duplicate specification text inside tasks.
-
-## Escalation
-
-Architecture ambiguity → `architect`
-GPU abstraction ambiguity → `gpu-architect`
-Specification ambiguity → `spec-writer`
-Task decomposition ambiguity → `task-planner`
+Do not duplicate specification text inside tasks. See CLAUDE.md for escalation rules.

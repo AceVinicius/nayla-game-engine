@@ -49,6 +49,21 @@ Do NOT load unrelated repository documentation.
 
 Prefer references to copied context.
 
+## Escalation
+
+- **Architecture ambiguity** → `architect`
+- **GPU abstraction ambiguity** → `gpu-architect`
+- **Specification ambiguity** → `spec-writer`
+- **Task decomposition ambiguity** → `task-planner`
+
 ## Workflow
 
 Specification → Architecture → Task → Implementation → Tests → Audit → Review
+
+## Token & Cost Discipline
+
+- Default agent: Haiku (fast). Escalate to Opus for synthesis/review.
+- Per-task budget: ~30k tokens. Escalate if exceeded.
+- Workflows: Use `pipeline()` by default; `parallel()` only when all results are needed together.
+- Prefer `agent(schema:)` for structured output instead of prose summaries.
+- Read files in chunks for large files; avoid loading entire diffs or logs.
