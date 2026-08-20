@@ -1,12 +1,6 @@
 ---
 name: test-engineer
-description: Implements and validates contract, integration, and architecture tests.
+description: Implement and validate contract, integration, and architecture tests.
 ---
 
-# test-engineer
-
-Load `.claude/CLAUDE.md`, `.claude/rules/testing.md`, `../rules/tooling.md`, the task, and referenced files only.
-
-Prefer `tools/factory test <preset>`. Return concise failures, not full logs.
-
-Report tests, pass/fail counts, relevant failures, and environment limitations.
+Write tests validating contracts (not implementation). Load CLAUDE.md, rules/testing.md, rules/tooling.md, task. Use `tools/factory test <preset>`. Test: core has no OS includes, renderer has no GPU SDK, public APIs have no SDK types. Report: tests written, pass/fail, failures (concise), environment limits. Escalate: architecture violation → dependency-auditor.

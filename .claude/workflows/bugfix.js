@@ -1,43 +1,20 @@
 export const meta = {
   name: 'bugfix',
   description: 'Fix a bug with root-cause analysis and regression coverage',
-  phases: [
-    { title: 'Analysis' },
-    { title: 'Reproduction' },
-    { title: 'Root Cause' },
-    { title: 'Fix' },
-    { title: 'Validation' },
-  ],
+  phases: [{ title: 'Analysis' }, { title: 'Repro' }, { title: 'Root Cause' }, { title: 'Fix' }, { title: 'Validate' }],
 }
 
-const task = await agent('Read and understand the bug report/task. Identify the affected subsystem.', {
-  label: 'bugfix:analysis',
-  phase: 'Analysis',
-})
+const task = await agent('Extract: broken, subsystem, observed vs expected.', { label: 'bugfix:analysis', phase: 'Analysis', schema: { broken: 'string', subsystem: 'string', observed: 'string', expected: 'string' } })
+log(`Bug: ${task.broken} (${task.subsystem})`)
 
-const repro = await agent(`Write the smallest test that reproduces this bug: ${task}. Run it to confirm failure.`, {
-  label: 'bugfix:repro',
-  phase: 'Reproduction',
-})
+const repro = await agent(`Write smallest test: ${JSON.stringify(task)}. Run, confirm fails, report test + failure.`, { label: 'bugfix:repro', phase: 'Repro' })
 
-const rootCause = await agent(`Trace the root cause of this bug: ${repro}. Load affected subsystem rules from .claude/rules/. Report root cause.`, {
-  label: 'bugfix:root-cause',
-  phase: 'Root Cause',
-})
+const rootCause = await agent(`Trace: ${repro}. Load rules/subsystem. Find root (not symptom). Report: file:line, cause, why.`, { label: 'bugfix:cause', phase: 'Root Cause', schema: { file: 'string', line: 'number', cause: 'string', why: 'string' } })
 
-const fix = await agent(`Fix the root cause: ${rootCause}. Make the minimal fix without refactoring unrelated code.`, {
-  label: 'bugfix:fix',
-  phase: 'Fix',
-})
+const fix = await agent(`Fix: ${JSON.stringify(rootCause)}. Minimal (no refactor). Apply, verify repro passes.`, { label: 'bugfix:fix', phase: 'Fix' })
 
-const regressionTest = await agent(`Add regression coverage for this bug to prevent re-occurrence: ${rootCause}`, {
-  label: 'bugfix:regression',
-  phase: 'Fix',
-})
+const regress = await agent(`Regression: ${JSON.stringify(rootCause)}. Write test catching bug, add to suite.`, { label: 'bugfix:regress', phase: 'Fix' })
 
-const validate = await agent('Run targeted tests on the fixed code. Run broader tests if required by the task. Report pass/fail.', {
-  label: 'bugfix:validate',
-  phase: 'Validation',
-})
+const validate = await agent('Run tests. Report: passed, failed, failures (concise).', { label: 'bugfix:validate', phase: 'Validate', schema: { passed: 'number', failed: 'number', failures: 'array' } })
 
-return { task, rootCause, fix, regressionTest, validate }
+return { task, repro, rootCause, fix, regress, validate }

@@ -3,4 +3,4 @@ name: spec-writer
 description: Maintain specifications and ADRs; remove contract ambiguity.
 ---
 
-Maintain specifications and ADRs; remove contract ambiguity. Load `.claude/CLAUDE.md`, task, and referenced spec files. Follow task contract, inspect source before changing, make smallest compliant change, run validation. See CLAUDE.md for escalation rules.
+Remove contract ambiguity before code. Load CLAUDE.md, task, spec/ADR files. Write clear spec: contract, invariants, edge cases, rationale. Verify: single interpretation, explicit invariants, all 3 backends can implement, rationale clear. Report: spec written/updated, invariants, rationale, files.

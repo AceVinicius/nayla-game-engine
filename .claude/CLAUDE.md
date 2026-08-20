@@ -1,69 +1,81 @@
 # Portable Game Engine
 
-C17/C23 portable game engine.
+C17/C23 portable game engine with hard architectural boundaries between core, renderer, and platform/GPU backends.
+
+## Core Invariants
+
+1. **Core**: no OS or GPU SDK headers.
+2. **Renderer**: no GPU SDK branching (Vulkan/D3D12/Metal).
+3. **Public APIs**: only engine-defined types, never SDK types.
+4. **Backend details**: opaque to core and renderer; isolation enforced.
+5. **Ownership/lifetime**: explicit; no hidden global state.
+6. **Capabilities**: queried, never assumed; graceful degradation.
+7. **Architecture changes**: require ADRs; no implementation hacks.
 
 ## Architecture
 
-Two hard boundaries:
-- Platform API → OS backends
-- GPU API → graphics API backends
+**Two hard boundaries:**
 
-Core and renderer MUST NOT depend on concrete OS or GPU SDKs.
+```
+Core (C code, no OS/GPU deps) ↔ Platform API ↔ OS Backends (Windows/Mac/Linux)
+                           ↔ GPU API ↔ Graphics Backends (Vulkan/D3D12/Metal)
+Renderer (GPU API only, no SDK types)
+```
 
-## Invariants
+All subsystems are portable; switching backends MUST NOT require core/renderer changes.
 
-1. Core: no OS dependencies.
-2. Renderer: no GPU SDK dependencies.
-3. Public APIs: no third-party SDK types.
-4. Backend details stay behind interfaces/opaque types.
-5. Ownership/lifetime is explicit.
-6. Capabilities are queried, not assumed.
-7. Architecture changes require an ADR.
-8. Do not solve architectural problems with implementation hacks.
+## Agents & Specialization
 
-## Agents
+**Architecture layer** (`architect`, `gpu-architect`, `spec-writer`, `task-planner`)
+- Design decisions, cross-subsystem impacts, contract specification, task decomposition
 
-Architecture: `architect`, `gpu-architect`, `spec-writer`, `task-planner`
-Implementation: `c-engineer`, `platform-engineer`, `gpu-backend-engineer`, `renderer-engineer`, `build-engineer`
-Validation: `test-engineer`, `dependency-auditor`, `performance-engineer`, `reviewer`
+**Implementation layer** (`c-engineer`, `platform-engineer`, `gpu-backend-engineer`, `renderer-engineer`, `build-engineer`)
+- Code, builds, backends; follow contracts without redesigning
 
-Use the most specialized agent.
+**Validation layer** (`test-engineer`, `dependency-auditor`, `performance-engineer`, `reviewer`)
+- Tests, dependency direction, performance, final audit
 
-## Context Rule
+**→ Always use the most specialized agent for the task.**
+
+## Context Loading
 
 Load only:
-1. this file;
-2. assigned agent;
-3. task;
-4. rules explicitly referenced by task/agent;
-5. required specifications/files.
+1. This file
+2. Assigned agent definition
+3. Assigned task
+4. Rules explicitly referenced by task/agent
+5. Required specs/source files
 
-Do NOT load unrelated repository documentation.
+**Do NOT load unrelated docs** — narrow context is a feature.
+
+## Escalation Rules
+
+Raise immediately when:
+- **Architecture ambiguity** (2+ valid designs) → `architect`
+- **GPU abstraction gap** (can't fit contract) → `gpu-architect`
+- **Specification ambiguity** (contract unclear) → `spec-writer`
+- **Task decomposition unclear** (how to slice) → `task-planner`
+
+## Workflow Stages
+
+```
+Specification (define) → Architecture (design) → Tasks (decompose) 
+  → Implementation (build) → Tests (validate) → Audit (check) → Review (approve)
+```
+
+Workflows run sequentially or in pipeline; barriers only when all results needed together.
+
+## Effort & Tokens
+
+- **Model**: Haiku by default (fast/cheap). Opus for synthesis, review, escalations.
+- **Per-task budget**: ~30k tokens; escalate if exceeded.
+- **Workflows**: `pipeline()` default; `parallel()` only when gathering all results at once.
+- **Output**: Prefer `agent(schema:)` for structured data; avoid prose summaries.
+- **Large files**: Read in chunks; never load full diffs or logs.
 
 ## Source of Truth
 
-- Architecture/specification → `docs/`
+- Spec/architecture → `docs/`
 - Work definition → `tasks/`
-- Current behavior → source/tests
-- Architectural decisions → ADRs
-
-Prefer references to copied context.
-
-## Escalation
-
-- **Architecture ambiguity** → `architect`
-- **GPU abstraction ambiguity** → `gpu-architect`
-- **Specification ambiguity** → `spec-writer`
-- **Task decomposition ambiguity** → `task-planner`
-
-## Workflow
-
-Specification → Architecture → Task → Implementation → Tests → Audit → Review
-
-## Token & Cost Discipline
-
-- Default agent: Haiku (fast). Escalate to Opus for synthesis/review.
-- Per-task budget: ~30k tokens. Escalate if exceeded.
-- Workflows: Use `pipeline()` by default; `parallel()` only when all results are needed together.
-- Prefer `agent(schema:)` for structured output instead of prose summaries.
-- Read files in chunks for large files; avoid loading entire diffs or logs.
+- Current behavior → source + tests
+- Decisions → ADRs

@@ -3,4 +3,4 @@ name: renderer-engineer
 description: Implement renderer functionality above GPU API.
 ---
 
-Implement renderer functionality above GPU API. Load `.claude/CLAUDE.md`, task, and `.claude/rules/renderer.md`. Follow task contract, inspect source before changing, make smallest compliant change, run validation. See CLAUDE.md for escalation rules.
+Implement renderer using GPU API only (no SDK types). Load CLAUDE.md, rules/renderer.md, task. Verify uses GPU API, not SDK; inspect patterns; implement smallest change. Report: code changes, GPU API features used, tests, gaps. Escalate: GPU API doesn't support → gpu-architect.

@@ -3,4 +3,4 @@ name: task-planner
 description: Turn approved designs into small dependency-aware tasks.
 ---
 
-Turn approved designs into small dependency-aware tasks. Load `.claude/CLAUDE.md`, task, and `.claude/rules/tasks.md`. Follow task contract, create dependency-aware tasks with clear contracts, report task graph. See CLAUDE.md for escalation rules.
+Decompose design into small, parallel-safe tasks. Load CLAUDE.md, rules/tasks.md, design doc. Create tasks: agent, context, objective, requirements, tests, dependencies. Verify: clear assignment, ~30k tokens, explicit deps, clear criteria, tests specified, no scope creep. Report: task list (ID/agent/desc), dependency graph, execution order, parallelization.
