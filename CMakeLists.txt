@@ -13,6 +13,10 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Debug)
 endif()
 
+# Must be called at the root (before add_subdirectory) so ctest can find the
+# root CTestTestfile.cmake that recurses into tests/.
+enable_testing()
+
 # Add subdirectories
 add_subdirectory(src)
 add_subdirectory(tests)

@@ -1,6 +1,6 @@
 # Renderer library: high-level rendering above GPU API
 
-add_library(engine_renderer STATIC api.h)
+add_library(engine_renderer STATIC renderer.c api.h)
 
 # Renderer uses GPU API only; enforced by dependency check
 target_link_libraries(engine_renderer PRIVATE engine_gpu_api)

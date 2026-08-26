@@ -1,15 +1,23 @@
 # Common CMake utilities for the game engine
 
+# Grep-based validation, delegated to a plain script (cmake/forbid-pattern.sh)
+# rather than an inline `bash -c "..."` one-liner: a multi-token shell script
+# embedded as a single CMake string argument gets mangled when re-serialized
+# through the Ninja/Makefile generator's own shell invocation (semicolons and
+# parens end up unescaped at the wrong layer). A script file with plain argv
+# has no such nesting to survive.
+set(NAYLA_FORBID_PATTERN_SCRIPT "${CMAKE_SOURCE_DIR}/cmake/forbid-pattern.sh")
+
 # Macro to forbid OS/GPU includes in source files
 # Usage: forbid_os_gpu_includes(target_name source_dir)
 macro(forbid_os_gpu_includes target_name source_dir)
-  # Grep-based validation: fail build if forbidden headers found
   add_custom_command(TARGET ${target_name} PRE_BUILD
-    COMMAND bash -c "! grep -r '#include.*<windows\\.h>' '${source_dir}' 2>/dev/null || (echo 'ERROR: OS header windows.h found in ${target_name}' && false)"
-    COMMAND bash -c "! grep -r '#include.*<unistd\\.h>' '${source_dir}' 2>/dev/null || (echo 'ERROR: OS header unistd.h found in ${target_name}' && false)"
-    COMMAND bash -c "! grep -r '#include.*<vulkan' '${source_dir}' 2>/dev/null || (echo 'ERROR: GPU header vulkan found in ${target_name}' && false)"
-    COMMAND bash -c "! grep -r '#include.*<d3d12' '${source_dir}' 2>/dev/null || (echo 'ERROR: GPU header d3d12 found in ${target_name}' && false)"
-    COMMAND bash -c "! grep -r '#include.*<metal' '${source_dir}' 2>/dev/null || (echo 'ERROR: GPU header metal found in ${target_name}' && false)"
+    COMMAND bash "${NAYLA_FORBID_PATTERN_SCRIPT}" "${target_name}" "OS header windows.h" "#include.*<windows\\.h>" "${source_dir}"
+    COMMAND bash "${NAYLA_FORBID_PATTERN_SCRIPT}" "${target_name}" "OS header unistd.h" "#include.*<unistd\\.h>" "${source_dir}"
+    COMMAND bash "${NAYLA_FORBID_PATTERN_SCRIPT}" "${target_name}" "GPU header vulkan" "#include.*<vulkan" "${source_dir}"
+    COMMAND bash "${NAYLA_FORBID_PATTERN_SCRIPT}" "${target_name}" "GPU header d3d12" "#include.*<d3d12" "${source_dir}"
+    COMMAND bash "${NAYLA_FORBID_PATTERN_SCRIPT}" "${target_name}" "GPU header metal" "#include.*<metal" "${source_dir}"
+    VERBATIM
   )
 endmacro()
 
@@ -17,8 +25,9 @@ endmacro()
 # Usage: forbid_gpu_branching(target_name source_dir)
 macro(forbid_gpu_branching target_name source_dir)
   add_custom_command(TARGET ${target_name} PRE_BUILD
-    COMMAND bash -c "! grep -r '#ifdef.*VULKAN' '${source_dir}' 2>/dev/null || (echo 'ERROR: GPU branching #ifdef VULKAN found in ${target_name}' && false)"
-    COMMAND bash -c "! grep -r '#ifdef.*D3D12' '${source_dir}' 2>/dev/null || (echo 'ERROR: GPU branching #ifdef D3D12 found in ${target_name}' && false)"
-    COMMAND bash -c "! grep -r '#ifdef.*METAL' '${source_dir}' 2>/dev/null || (echo 'ERROR: GPU branching #ifdef METAL found in ${target_name}' && false)"
+    COMMAND bash "${NAYLA_FORBID_PATTERN_SCRIPT}" "${target_name}" "GPU branching #ifdef VULKAN" "#ifdef.*VULKAN" "${source_dir}"
+    COMMAND bash "${NAYLA_FORBID_PATTERN_SCRIPT}" "${target_name}" "GPU branching #ifdef D3D12" "#ifdef.*D3D12" "${source_dir}"
+    COMMAND bash "${NAYLA_FORBID_PATTERN_SCRIPT}" "${target_name}" "GPU branching #ifdef METAL" "#ifdef.*METAL" "${source_dir}"
+    VERBATIM
   )
 endmacro()
