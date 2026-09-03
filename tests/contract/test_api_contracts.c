@@ -5,15 +5,15 @@
  * Verifies that engine lifecycle (init → tick → shutdown) succeeds.
  */
 int main(void) {
-    struct engine *e = NULL;
-    engine_error_t err;
+    Engine *e = NULL;
+    EngineResult err;
 
     printf("Testing engine API contracts...\n");
 
-    /* Test engine_init() returns 0 (success) */
-    err = engine_init(&e);
-    if (err != 0) {
-        fprintf(stderr, "✗ engine_init() failed with error %d\n", err);
+    /* Test engine_init() returns ENGINE_RESULT_SUCCESS */
+    err = engine_init(&e, NULL);
+    if (err != ENGINE_RESULT_SUCCESS) {
+        fprintf(stderr, "✗ engine_init() failed with error %s\n", engine_result_name(err));
         return 1;
     }
     if (e == NULL) {
@@ -24,28 +24,31 @@ int main(void) {
 
     /* Test engine_tick() accepts initialized engine */
     err = engine_tick(e);
-    if (err != 0) {
-        fprintf(stderr, "✗ engine_tick() failed with error %d\n", err);
-        engine_shutdown(e);
+    if (err != ENGINE_RESULT_SUCCESS) {
+        fprintf(stderr, "✗ engine_tick() failed with error %s\n", engine_result_name(err));
+        EngineResult shutdown_err = engine_shutdown(e);
+        if (shutdown_err != ENGINE_RESULT_SUCCESS) {
+            fprintf(stderr, "✗ engine_shutdown() also failed during error cleanup\n");
+        }
         return 1;
     }
     printf("✓ engine_tick() succeeds on initialized engine\n");
 
-    /* Test engine_shutdown() returns 0 (success) */
+    /* Test engine_shutdown() returns ENGINE_RESULT_SUCCESS */
     err = engine_shutdown(e);
-    if (err != 0) {
-        fprintf(stderr, "✗ engine_shutdown() failed with error %d\n", err);
+    if (err != ENGINE_RESULT_SUCCESS) {
+        fprintf(stderr, "✗ engine_shutdown() failed with error %s\n", engine_result_name(err));
         return 1;
     }
     printf("✓ engine_shutdown() succeeds and frees memory\n");
 
-    /* Test error handling: tick on NULL */
+    /* Test error handling: tick on NULL (RESULT-INV-8) */
     err = engine_tick(NULL);
-    if (err == 0) {
-        fprintf(stderr, "✗ engine_tick(NULL) should return error\n");
+    if (err != ENGINE_RESULT_INVALID_ARGUMENT) {
+        fprintf(stderr, "✗ engine_tick(NULL) should return ENGINE_RESULT_INVALID_ARGUMENT, got %s\n", engine_result_name(err));
         return 1;
     }
-    printf("✓ engine_tick(NULL) returns error as specified\n");
+    printf("✓ engine_tick(NULL) returns ENGINE_RESULT_INVALID_ARGUMENT as specified\n");
 
     printf("\n✅ All API contract tests passed!\n");
     return 0;

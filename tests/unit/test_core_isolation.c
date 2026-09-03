@@ -6,21 +6,23 @@
  * If core included OS headers, this would fail to compile.
  */
 int main(void) {
-    struct engine *engine;
+    Engine *engine = NULL;
 
     /* Test engine initialization */
-    int result = engine_init(&engine);
-    assert(result == 0);
+    EngineResult result = engine_init(&engine, NULL);
+    assert(result == ENGINE_RESULT_SUCCESS);
     assert(engine != NULL);
 
     printf("✓ Engine initialized\n");
 
     /* Test engine tick */
-    engine_tick(engine);
+    result = engine_tick(engine);
+    assert(result == ENGINE_RESULT_SUCCESS);
     printf("✓ Engine tick completed\n");
 
     /* Test engine shutdown */
-    engine_shutdown(engine);
+    result = engine_shutdown(engine);
+    assert(result == ENGINE_RESULT_SUCCESS);
     printf("✓ Engine shutdown completed\n");
 
     printf("\n✅ All unit tests passed!\n");

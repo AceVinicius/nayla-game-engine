@@ -1,28 +1,40 @@
 #ifndef ENGINE_H
 #define ENGINE_H
 
-#include <stdint.h>
+#include "src/core/result.h"
+#include "src/core/allocator.h"
 
-/* Opaque engine type. Owned by caller; lifetime explicit. */
-struct engine;
+/* Opaque engine type. Owned by caller; lifetime explicit.
+ * See docs/spec/core/engine.md for the contract.
+ */
+typedef struct Engine Engine;
 
-/* Engine error type. 0 = success, non-zero = error. */
-typedef int32_t engine_error_t;
+/* Initialize engine with an optional custom allocator.
+ * allocator == NULL means use engine_default_allocator().
+ * The allocator is borrowed; caller owns it and must keep it valid until
+ * after engine_shutdown returns (CORE-ALLOC-060..065).
+ * Returns ENGINE_RESULT_SUCCESS on success.
+ * Returns ENGINE_RESULT_INVALID_ARGUMENT if allocator->alloc or
+ *   allocator->free is NULL after resolution, or if owned_engine is NULL.
+ * Returns ENGINE_RESULT_OUT_OF_MEMORY if allocation fails.
+ * On failure, *owned_engine is left unmodified or NULL (CORE-RESULT-013).
+ * See docs/spec/core/allocator.md § CORE-ALLOC-060..070 for lifetime rules.
+ */
+ENGINE_NODISCARD EngineResult engine_init(Engine **owned_engine, const EngineAllocator *allocator);
 
-/* Allocator function types: portable, no direct malloc/free in core. */
-typedef void* (*engine_alloc_fn)(uint64_t size);
-typedef void (*engine_free_fn)(void *ptr);
+/* Tick the engine (frame update).
+ * Returns ENGINE_RESULT_SUCCESS on success.
+ * Returns ENGINE_RESULT_INVALID_ARGUMENT if owned_engine is NULL.
+ * Returns ENGINE_RESULT_INVALID_STATE if engine is not initialized.
+ */
+ENGINE_NODISCARD EngineResult engine_tick(Engine *owned_engine);
 
-/* Initialize engine. Returns 0 on success, non-zero on error. */
-engine_error_t engine_init(struct engine **owned_engine);
-
-/* Tick the engine (frame update). Returns 0 on success. */
-engine_error_t engine_tick(struct engine *owned_engine);
-
-/* Shutdown engine. Returns 0 on success. */
-engine_error_t engine_shutdown(struct engine *owned_engine);
-
-/* Set custom allocators (must be called before engine_init). */
-void engine_set_allocators(engine_alloc_fn alloc, engine_free_fn free);
+/* Shutdown engine and release all allocated memory through its stored allocator.
+ * Returns ENGINE_RESULT_SUCCESS on success.
+ * Returns ENGINE_RESULT_INVALID_ARGUMENT if owned_engine is NULL.
+ * Caller owns the EngineAllocator and must manage its lifetime separately
+ * (CORE-ALLOC-062).
+ */
+ENGINE_NODISCARD EngineResult engine_shutdown(Engine *owned_engine);
 
 #endif /* ENGINE_H */

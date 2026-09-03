@@ -48,7 +48,7 @@ cmd_test() {
             ;;
         integration)
             echo "Running integration tests..."
-            ctest --test-dir "$build_dir" -R "^integration/" -V || true
+            ctest --test-dir "$build_dir" -R "^integration/" -V
             ;;
         architecture)
             echo "Running architecture tests..."

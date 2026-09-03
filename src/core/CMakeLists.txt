@@ -1,19 +1,44 @@
+# Foundation library: allocator and result types
+# Portable C code: no OS or GPU SDK headers, no engine dependencies
+
+add_library(engine_foundation STATIC
+  allocator.c
+  result.c
+)
+
+target_include_directories(engine_foundation PUBLIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/../..
+)
+
+# Enforce: no OS/GPU includes in foundation, no direct allocation except in allocator.c
+include(${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/Common.cmake)
+forbid_os_gpu_includes(engine_foundation ${CMAKE_CURRENT_SOURCE_DIR})
+forbid_direct_allocation(engine_foundation ${CMAKE_CURRENT_SOURCE_DIR} "allocator.c")
+
+# Set strict warnings for foundation
+target_compile_options(engine_foundation PRIVATE
+  -Wall -Wextra -Wpedantic
+)
+
 # Core engine library
 # Portable C code: no OS or GPU SDK headers
+# Depends on foundation for allocator and result types
 
 add_library(engine_core STATIC
   engine.c
 )
 
+target_link_libraries(engine_core PUBLIC engine_foundation)
+
 target_include_directories(engine_core PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/../..
 )
 
-# Enforce: no OS/GPU includes in core
-include(${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/Common.cmake)
+# Enforce: no OS/GPU includes in core, no direct allocation except allocator.c
 forbid_os_gpu_includes(engine_core ${CMAKE_CURRENT_SOURCE_DIR})
+forbid_direct_allocation(engine_core ${CMAKE_CURRENT_SOURCE_DIR} "allocator.c")
 
-# Set strict warnings
+# Set strict warnings for core
 target_compile_options(engine_core PRIVATE
   -Wall -Wextra -Wpedantic
 )
