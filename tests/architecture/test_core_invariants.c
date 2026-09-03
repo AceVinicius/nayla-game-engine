@@ -36,7 +36,7 @@ int main(void) {
      * so no runtime verification needed here. */
 
     /* Verify init/tick/shutdown return EngineResult (not SDK types) */
-    EngineResult err = engine_init(&e, NULL);
+    EngineResult err = engine_init(&e, NULL, NULL);
     if (err != ENGINE_RESULT_SUCCESS) {
         fprintf(stderr, "✗ engine_init() failed: %s\n", engine_result_name(err));
         return 1;
@@ -132,6 +132,57 @@ int main(void) {
     }
     printf("✓ Core and renderer have no file-scope mutable allocator state (ALLOC-INV-10)\n");
 
+    /* LOG-INV-9: No direct stream output (printf/fprintf/puts/fputs/fwrite/stdout/stderr)
+     * in core or renderer, except in log_console.c. Seven patterns per the spec. */
+    snprintf(cmd, sizeof(cmd), "grep -r -- '\\bprintf\\s*(' '%s' '%s' 2>/dev/null | grep -v '/log_console.c:'", NAYLA_CORE_SRC_DIR, NAYLA_RENDERER_SRC_DIR);
+    if (system(cmd) == 0) {
+        fprintf(stderr, "✗ Core or renderer contains a forbidden printf call\n");
+        return 1;
+    }
+    printf("✓ Core and renderer have no printf calls (LOG-INV-9)\n");
+
+    snprintf(cmd, sizeof(cmd), "grep -r -- '\\bfprintf\\s*(' '%s' '%s' 2>/dev/null | grep -v '/log_console.c:'", NAYLA_CORE_SRC_DIR, NAYLA_RENDERER_SRC_DIR);
+    if (system(cmd) == 0) {
+        fprintf(stderr, "✗ Core or renderer contains a forbidden fprintf call\n");
+        return 1;
+    }
+    printf("✓ Core and renderer have no fprintf calls (LOG-INV-9)\n");
+
+    snprintf(cmd, sizeof(cmd), "grep -r -- '\\bputs\\s*(' '%s' '%s' 2>/dev/null | grep -v '/log_console.c:'", NAYLA_CORE_SRC_DIR, NAYLA_RENDERER_SRC_DIR);
+    if (system(cmd) == 0) {
+        fprintf(stderr, "✗ Core or renderer contains a forbidden puts call\n");
+        return 1;
+    }
+    printf("✓ Core and renderer have no puts calls (LOG-INV-9)\n");
+
+    snprintf(cmd, sizeof(cmd), "grep -r -- '\\bfputs\\s*(' '%s' '%s' 2>/dev/null | grep -v '/log_console.c:'", NAYLA_CORE_SRC_DIR, NAYLA_RENDERER_SRC_DIR);
+    if (system(cmd) == 0) {
+        fprintf(stderr, "✗ Core or renderer contains a forbidden fputs call\n");
+        return 1;
+    }
+    printf("✓ Core and renderer have no fputs calls (LOG-INV-9)\n");
+
+    snprintf(cmd, sizeof(cmd), "grep -r -- '\\bfwrite\\s*(' '%s' '%s' 2>/dev/null | grep -v '/log_console.c:'", NAYLA_CORE_SRC_DIR, NAYLA_RENDERER_SRC_DIR);
+    if (system(cmd) == 0) {
+        fprintf(stderr, "✗ Core or renderer contains a forbidden fwrite call\n");
+        return 1;
+    }
+    printf("✓ Core and renderer have no fwrite calls (LOG-INV-9)\n");
+
+    snprintf(cmd, sizeof(cmd), "grep -r -- '\\bstdout\\b' '%s' '%s' 2>/dev/null | grep -v '/log_console.c:'", NAYLA_CORE_SRC_DIR, NAYLA_RENDERER_SRC_DIR);
+    if (system(cmd) == 0) {
+        fprintf(stderr, "✗ Core or renderer contains a forbidden stdout identifier\n");
+        return 1;
+    }
+    printf("✓ Core and renderer do not use stdout (LOG-INV-9)\n");
+
+    snprintf(cmd, sizeof(cmd), "grep -r -- '\\bstderr\\b' '%s' '%s' 2>/dev/null | grep -v '/log_console.c:'", NAYLA_CORE_SRC_DIR, NAYLA_RENDERER_SRC_DIR);
+    if (system(cmd) == 0) {
+        fprintf(stderr, "✗ Core or renderer contains a forbidden stderr identifier\n");
+        return 1;
+    }
+    printf("✓ Core and renderer do not use stderr (LOG-INV-9)\n");
+
     /* RESULT-INV-4: No function returning bare int32_t as status from the
      * actual public API headers (engine.h, renderer's api.h) — not
      * allocator.h/result.h, which never declared such a function. */
@@ -183,6 +234,59 @@ int main(void) {
         return 1;
     }
     printf("✓ Renderer has no free calls (ALLOC-INV-7)\n");
+
+    /* LOG-INV-5: No file-scope mutable logger-related variables in core or renderer.
+     * Matching pattern: \bstatic\b (word-bounded to exclude static_assert)
+     * followed by EngineLogger, EngineLogSink, or EngineLogLevel, filtered
+     * to exclude const (since static const is allowed per CORE-LOG-050/051).
+     * Also check for forbidden logger-related symbols anywhere in the repo:
+     * *default_logger*, *global_log*, *log_set_global* (CORE-LOG-001). */
+    snprintf(cmd, sizeof(cmd), "grep -rE '\\bstatic\\b.*(EngineLogger|EngineLogSink|EngineLogLevel)' '%s' '%s' 2>/dev/null | grep -v const", NAYLA_CORE_SRC_DIR, NAYLA_RENDERER_SRC_DIR);
+    if (system(cmd) == 0) {
+        fprintf(stderr, "✗ Core or renderer contains file-scope mutable logger state\n");
+        return 1;
+    }
+    printf("✓ Core and renderer have no file-scope mutable logger state (LOG-INV-5)\n");
+
+    /* LOG-INV-5 symbol check: no *default_logger*, *global_log*, or *log_set_global*
+     * anywhere in the repo (including tests, main.c, backends). Repository-wide scope. */
+    snprintf(cmd, sizeof(cmd), "grep -rE 'default_logger|global_log|log_set_global' '%s/..' 2>/dev/null", NAYLA_CORE_SRC_DIR);
+    if (system(cmd) == 0) {
+        fprintf(stderr, "✗ Repository contains forbidden global logger symbols (default_logger, global_log, log_set_global)\n");
+        return 1;
+    }
+    printf("✓ Repository has no global logger symbols (LOG-INV-5)\n");
+
+    /* LOG-INV-10: logging.h includes EXACTLY the five headers from CORE-LOG-091,
+     * no more. The five are: <stdarg.h>, <stdbool.h>, <stddef.h>, <stdint.h>,
+     * "src/core/result.h". It MUST NOT include allocator.h, <stdio.h>, malloc,
+     * or _Atomic (CORE-LOG-091, the analogue of ALLOC-INV-8). */
+    snprintf(cmd, sizeof(cmd), "grep -E '^#\\s*include' '%s/logging.h' | wc -l", NAYLA_CORE_SRC_DIR);
+    FILE *fp = popen(cmd, "r");
+    if (fp == NULL) {
+        fprintf(stderr, "✗ Failed to check logging.h include count\n");
+        return 1;
+    }
+    int include_count = 0;
+    if (fscanf(fp, "%d", &include_count) != 1) {
+        pclose(fp);
+        fprintf(stderr, "✗ Failed to parse logging.h include count\n");
+        return 1;
+    }
+    pclose(fp);
+    if (include_count != 5) {
+        fprintf(stderr, "✗ logging.h includes %d headers, expected exactly 5 (CORE-LOG-091)\n", include_count);
+        return 1;
+    }
+    printf("✓ logging.h includes exactly 5 headers (LOG-INV-10)\n");
+
+    /* Verify logging.h does not contain allocator.h, stdio.h, malloc, or _Atomic */
+    snprintf(cmd, sizeof(cmd), "grep -E 'allocator\\.h|<stdio\\.h>|malloc|_Atomic' '%s/logging.h'", NAYLA_CORE_SRC_DIR);
+    if (system(cmd) == 0) {
+        fprintf(stderr, "✗ logging.h contains forbidden includes (allocator.h, stdio.h) or keywords (malloc, _Atomic)\n");
+        return 1;
+    }
+    printf("✓ logging.h avoids allocator.h, stdio.h, malloc, _Atomic (LOG-INV-10)\n");
 
     printf("\n✅ All architecture invariants verified!\n");
     return 0;

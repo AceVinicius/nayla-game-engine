@@ -9,7 +9,7 @@ int main(void) {
     Engine *engine = NULL;
 
     /* Test engine initialization */
-    EngineResult result = engine_init(&engine, NULL);
+    EngineResult result = engine_init(&engine, NULL, NULL);
     assert(result == ENGINE_RESULT_SUCCESS);
     assert(engine != NULL);
 

@@ -11,10 +11,11 @@ target_link_libraries(engine_renderer
   PRIVATE engine_gpu_api
 )
 
-# Forbid direct GPU SDK includes, OS headers, and direct allocation in renderer
+# Forbid direct GPU SDK includes, OS headers, direct allocation, and direct output in renderer
 include(${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/Common.cmake)
 forbid_os_gpu_includes(engine_renderer ${CMAKE_CURRENT_SOURCE_DIR})
 forbid_direct_allocation(engine_renderer ${CMAKE_CURRENT_SOURCE_DIR})
+forbid_direct_output(engine_renderer ${CMAKE_CURRENT_SOURCE_DIR})
 
 # ALLOC-INV-11 as a real configure-time assertion, not just the comment above:
 # fails CMake configuration if engine_renderer ever links engine_core, even

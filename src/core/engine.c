@@ -2,11 +2,13 @@
 
 struct Engine {
   const EngineAllocator *allocator;
+  const EngineLogger *logger;
   int32_t initialized;
 };
 
-EngineResult engine_init(Engine **owned_engine, const EngineAllocator *allocator) {
+EngineResult engine_init(Engine **owned_engine, const EngineAllocator *allocator, const EngineLogger *logger) {
   if (!owned_engine) {
+    ENGINE_LOG_ERROR(logger, "Core", "engine_init: owned_engine is NULL");
     return ENGINE_RESULT_INVALID_ARGUMENT;
   }
 
@@ -18,6 +20,7 @@ EngineResult engine_init(Engine **owned_engine, const EngineAllocator *allocator
 
   /* Validate that both callbacks are present (CORE-ALLOC-070) */
   if (!resolved->alloc || !resolved->free) {
+    ENGINE_LOG_ERROR(logger, "Core", "engine_init: allocator callbacks are NULL");
     return ENGINE_RESULT_INVALID_ARGUMENT;
   }
 
@@ -25,11 +28,13 @@ EngineResult engine_init(Engine **owned_engine, const EngineAllocator *allocator
    * sizeof(Engine) and _Alignof(Engine) are compile-time non-zero) */
   Engine *engine = (Engine *)engine_alloc(resolved, sizeof(Engine), _Alignof(Engine));
   if (!engine) {
+    ENGINE_LOG_ERROR(logger, "Core", "engine_init: allocation failed");
     return ENGINE_RESULT_OUT_OF_MEMORY;
   }
 
-  /* Initialize the engine: store the allocator and mark as initialized */
+  /* Initialize the engine: store the allocator, logger, and mark as initialized */
   engine->allocator = resolved;
+  engine->logger = logger;
   engine->initialized = 1;
   *owned_engine = engine;
   return ENGINE_RESULT_SUCCESS;

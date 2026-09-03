@@ -13,3 +13,9 @@ add_test(NAME unit/allocator COMMAND test_allocator_unit)
 add_executable(test_result_unit test_result_unit.c)
 target_link_libraries(test_result_unit PRIVATE engine_foundation)
 add_test(NAME unit/result COMMAND test_result_unit)
+
+# Unit tests for logger (LOG-INV-3/4/6/7/11/12/14)
+# Requirement 1: link engine_foundation only, never engine_core
+add_executable(test_logger_unit test_logger_unit.c)
+target_link_libraries(test_logger_unit PRIVATE engine_foundation)
+add_test(NAME unit/logger COMMAND test_logger_unit)

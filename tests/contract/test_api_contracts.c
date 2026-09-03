@@ -11,7 +11,7 @@ int main(void) {
     printf("Testing engine API contracts...\n");
 
     /* Test engine_init() returns ENGINE_RESULT_SUCCESS */
-    err = engine_init(&e, NULL);
+    err = engine_init(&e, NULL, NULL);
     if (err != ENGINE_RESULT_SUCCESS) {
         fprintf(stderr, "✗ engine_init() failed with error %s\n", engine_result_name(err));
         return 1;

@@ -115,7 +115,7 @@ int main(void) {
     Engine *engine = NULL;
     EngineResult result;
     EngineResult shutdown_result;
-    result = engine_init(&engine, &tracking_alloc);
+    result = engine_init(&engine, &tracking_alloc, NULL);
     if (result != ENGINE_RESULT_SUCCESS) {
         fprintf(stderr, "✗ engine_init failed: %s\n", engine_result_name(result));
         leak_tracker_destroy(tracker);

@@ -58,6 +58,37 @@ macro(forbid_direct_allocation target_name source_dir)
   endif()
 endmacro()
 
+# Macro to forbid direct output to streams (printf/fprintf/puts/fputs/fwrite/stdout/stderr) in source files
+# Usage: forbid_direct_output(target_name source_dir [exempt_filename])
+# exempt_filename: optional filename to exempt from the check (e.g. "log_console.c")
+# Seven patterns per LOG-INV-9: printf, fprintf, puts, fputs, fwrite, stdout, stderr
+macro(forbid_direct_output target_name source_dir)
+  set(exempt_file "${ARGV2}")
+  if(exempt_file)
+    add_custom_command(TARGET ${target_name} PRE_BUILD
+      COMMAND bash "${NAYLA_FORBID_PATTERN_SCRIPT}" "${target_name}" "direct printf call" "\\bprintf\\s*(" "${source_dir}" "${exempt_file}"
+      COMMAND bash "${NAYLA_FORBID_PATTERN_SCRIPT}" "${target_name}" "direct fprintf call" "\\bfprintf\\s*(" "${source_dir}" "${exempt_file}"
+      COMMAND bash "${NAYLA_FORBID_PATTERN_SCRIPT}" "${target_name}" "direct puts call" "\\bputs\\s*(" "${source_dir}" "${exempt_file}"
+      COMMAND bash "${NAYLA_FORBID_PATTERN_SCRIPT}" "${target_name}" "direct fputs call" "\\bfputs\\s*(" "${source_dir}" "${exempt_file}"
+      COMMAND bash "${NAYLA_FORBID_PATTERN_SCRIPT}" "${target_name}" "direct fwrite call" "\\bfwrite\\s*(" "${source_dir}" "${exempt_file}"
+      COMMAND bash "${NAYLA_FORBID_PATTERN_SCRIPT}" "${target_name}" "stdout identifier" "\\bstdout\\b" "${source_dir}" "${exempt_file}"
+      COMMAND bash "${NAYLA_FORBID_PATTERN_SCRIPT}" "${target_name}" "stderr identifier" "\\bstderr\\b" "${source_dir}" "${exempt_file}"
+      VERBATIM
+    )
+  else()
+    add_custom_command(TARGET ${target_name} PRE_BUILD
+      COMMAND bash "${NAYLA_FORBID_PATTERN_SCRIPT}" "${target_name}" "direct printf call" "\\bprintf\\s*(" "${source_dir}"
+      COMMAND bash "${NAYLA_FORBID_PATTERN_SCRIPT}" "${target_name}" "direct fprintf call" "\\bfprintf\\s*(" "${source_dir}"
+      COMMAND bash "${NAYLA_FORBID_PATTERN_SCRIPT}" "${target_name}" "direct puts call" "\\bputs\\s*(" "${source_dir}"
+      COMMAND bash "${NAYLA_FORBID_PATTERN_SCRIPT}" "${target_name}" "direct fputs call" "\\bfputs\\s*(" "${source_dir}"
+      COMMAND bash "${NAYLA_FORBID_PATTERN_SCRIPT}" "${target_name}" "direct fwrite call" "\\bfwrite\\s*(" "${source_dir}"
+      COMMAND bash "${NAYLA_FORBID_PATTERN_SCRIPT}" "${target_name}" "stdout identifier" "\\bstdout\\b" "${source_dir}"
+      COMMAND bash "${NAYLA_FORBID_PATTERN_SCRIPT}" "${target_name}" "stderr identifier" "\\bstderr\\b" "${source_dir}"
+      VERBATIM
+    )
+  endif()
+endmacro()
+
 # Configure-time assertion that `target` does not link `forbidden_target`,
 # directly or transitively (ALLOC-INV-11). A text grep over a CMakeLists.txt
 # only catches a direct, literal link line; it says nothing about a link

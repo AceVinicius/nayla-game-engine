@@ -33,7 +33,7 @@ int main(void) {
      * that it is either left unmodified or set to NULL after a failure. */
     Engine *engine = NULL;
 
-    EngineResult result = engine_init(&engine, &failing_alloc);
+    EngineResult result = engine_init(&engine, &failing_alloc, NULL);
 
     if (result != ENGINE_RESULT_OUT_OF_MEMORY) {
         fprintf(stderr, "✗ engine_init with failing allocator should return ENGINE_RESULT_OUT_OF_MEMORY, got %s\n",
