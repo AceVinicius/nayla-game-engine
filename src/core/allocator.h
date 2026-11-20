@@ -45,17 +45,20 @@ struct EngineAllocator {
  */
 #define ENGINE_ALLOCATOR_MAX_ALIGNMENT     ((size_t)4096)
 
+/* _Static_assert, not static_assert: the latter is a C23 keyword but a C17
+ * <assert.h> macro, and ALLOC-INV-8 limits this header to <stddef.h>. */
+
 /* ALLOC-INV-1: alignment of EngineAllocator must be reasonable */
-static_assert(_Alignof(EngineAllocator) <= _Alignof(max_align_t),
-              "EngineAllocator alignment must not exceed max_align_t");
+_Static_assert(_Alignof(EngineAllocator) <= _Alignof(max_align_t),
+               "EngineAllocator alignment must not exceed max_align_t");
 
 /* ALLOC-INV-2: the constants are powers of two */
-static_assert((ENGINE_ALLOCATOR_DEFAULT_ALIGNMENT & (ENGINE_ALLOCATOR_DEFAULT_ALIGNMENT - 1)) == 0,
-              "DEFAULT_ALIGNMENT must be a power of two");
-static_assert((ENGINE_ALLOCATOR_MAX_ALIGNMENT & (ENGINE_ALLOCATOR_MAX_ALIGNMENT - 1)) == 0,
-              "MAX_ALIGNMENT must be a power of two");
-static_assert(ENGINE_ALLOCATOR_DEFAULT_ALIGNMENT <= ENGINE_ALLOCATOR_MAX_ALIGNMENT,
-              "DEFAULT_ALIGNMENT must not exceed MAX_ALIGNMENT");
+_Static_assert((ENGINE_ALLOCATOR_DEFAULT_ALIGNMENT & (ENGINE_ALLOCATOR_DEFAULT_ALIGNMENT - 1)) == 0,
+               "DEFAULT_ALIGNMENT must be a power of two");
+_Static_assert((ENGINE_ALLOCATOR_MAX_ALIGNMENT & (ENGINE_ALLOCATOR_MAX_ALIGNMENT - 1)) == 0,
+               "MAX_ALIGNMENT must be a power of two");
+_Static_assert(ENGINE_ALLOCATOR_DEFAULT_ALIGNMENT <= ENGINE_ALLOCATOR_MAX_ALIGNMENT,
+               "DEFAULT_ALIGNMENT must not exceed MAX_ALIGNMENT");
 
 /* Get the default heap allocator singleton.
  * Returns a pointer to a static const EngineAllocator that wraps malloc/free.
