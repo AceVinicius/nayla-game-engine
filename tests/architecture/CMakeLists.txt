@@ -8,6 +8,8 @@ target_compile_definitions(test_core_invariants PRIVATE
   NAYLA_PLATFORM_SRC_DIR="${CMAKE_SOURCE_DIR}/src/platform"
   NAYLA_GPU_SRC_DIR="${CMAKE_SOURCE_DIR}/src/gpu"
   NAYLA_REPO_ROOT="${CMAKE_SOURCE_DIR}"
+  NAYLA_FORBIDDEN_INCLUDES="${CMAKE_SOURCE_DIR}/cmake/forbidden-includes.txt"
+  NAYLA_FORBIDDEN_GPU_SDK_INCLUDES="${CMAKE_SOURCE_DIR}/cmake/forbidden-gpu-sdk-includes.txt"
 )
 
 add_test(NAME architecture/core_invariants COMMAND test_core_invariants)

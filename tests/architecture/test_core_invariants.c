@@ -10,8 +10,9 @@
 #include "src/core/engine.h"
 
 #if !defined(NAYLA_CORE_SRC_DIR) || !defined(NAYLA_RENDERER_SRC_DIR) || !defined(NAYLA_REPO_ROOT) || \
-    !defined(NAYLA_PLATFORM_SRC_DIR) || !defined(NAYLA_GPU_SRC_DIR)
-# error "NAYLA_*_DIR / NAYLA_REPO_ROOT must be defined by CMake (tests/architecture/CMakeLists.txt)"
+    !defined(NAYLA_PLATFORM_SRC_DIR) || !defined(NAYLA_GPU_SRC_DIR) || !defined(NAYLA_FORBIDDEN_INCLUDES) || \
+    !defined(NAYLA_FORBIDDEN_GPU_SDK_INCLUDES)
+# error "NAYLA_*_DIR / NAYLA_REPO_ROOT / NAYLA_FORBIDDEN_*INCLUDES must be defined by CMake (tests/architecture/CMakeLists.txt)"
 #endif
 
 #define Q(path) "'" path "'"
@@ -20,6 +21,32 @@
 #define BOTH CORE " " REND
 #define API_H Q(NAYLA_PLATFORM_SRC_DIR "/api.h")
 #define NATIVE_H Q(NAYLA_PLATFORM_SRC_DIR "/native.h")
+#define GPU_API_H Q(NAYLA_GPU_SRC_DIR "/api.h")
+#define PLAT_DIR Q(NAYLA_PLATFORM_SRC_DIR)
+
+/* The shared PLAT-INV-3(b) list, the same file cmake/Common.cmake reads.
+ * grep -i: the match is case-insensitive. */
+#define FORBIDDEN_LIST Q(NAYLA_FORBIDDEN_INCLUDES)
+#define GPU_SDK_LIST Q(NAYLA_FORBIDDEN_GPU_SDK_INCLUDES)
+#define NO_FORBIDDEN(where, paths) \
+    {"PLAT-INV-3(b): no forbidden includes in " where, \
+     "grep -rniE -f " FORBIDDEN_LIST " " paths}
+#define NO_GPU_SDK(where, paths) \
+    {"PLAT-INV-3(b): no GPU SDK includes in " where, \
+     "grep -rniE -f " GPU_SDK_LIST " " paths}
+/* A grep error (missing file, invalid regex) exits 2, and a row counts exit 0
+ * as a violation, so an error would pass silently. This row fails when the
+ * list is empty or missing, or when grep cannot compile it (exit 2). */
+#define LIST_GUARD(name, list) \
+    {"guard: " name " list is present and compiles", \
+     "test ! -s " list " || { grep -E -f " list " /dev/null; test $? -eq 2; }"}
+/* PLAT-INV-14 patterns, shared by the row and its guard.
+ * VAR: a column-0 declaration, with an optional array suffix, ending in ";" or ",".
+ * FP: a column-0 function-pointer declarator "(*name"; the line must start
+ * with a type token, so a statement such as "(*cb)(x);" or an indented
+ * "return (*cb)(x);" inside a function body never matches. */
+#define PLAT14_VAR "^[A-Za-z_][A-Za-z0-9_ *]*[ *][*]?[A-Za-z_][A-Za-z0-9_]*(\\[[^]]*\\])*[[:space:]]*(=[^;]*)?[;,]"
+#define PLAT14_FP "^[A-Za-z_][A-Za-z0-9_ *]*\\([[:space:]]*\\*[[:space:]]*(const[[:space:]]+)?[A-Za-z_]"
 
 #define ALLOC_CALLS "\\b(malloc|calloc|realloc|aligned_alloc|free)\\s*\\("
 /* grep -v matches the file path prefix of each "path:line:text" hit. */
@@ -36,10 +63,13 @@ typedef struct {
 } Check;
 
 static const Check checks[] = {
-    {"Core has no OS headers",
-     "grep -rE '#include.*<(windows|unistd)\\.h>' " CORE},
-    {"Core has no GPU SDK headers",
-     "grep -rE '#include.*<(vulkan|d3d12|metal)' " CORE},
+    LIST_GUARD("forbidden-includes", FORBIDDEN_LIST),
+    LIST_GUARD("GPU SDK", GPU_SDK_LIST),
+    NO_FORBIDDEN("core and renderer", BOTH),
+    NO_FORBIDDEN("platform api.h", API_H),
+    NO_FORBIDDEN("platform native.h", NATIVE_H),
+    NO_FORBIDDEN("gpu api.h", GPU_API_H),
+    NO_GPU_SDK("core and renderer", BOTH),
 
     {"ALLOC-INV-7: no direct allocation in core outside allocator.c",
      "grep -rE '" ALLOC_CALLS "' " CORE NOT_IN("allocator.c")},
@@ -126,6 +156,29 @@ static const Check checks[] = {
      "grep -E '^[A-Za-z_][A-Za-z0-9_ *]*[[:space:]*]platform_[a-z0-9_]+\\(' " API_H
      " | grep -vE 'platform_(time_now_ns|thread_current_id|log_time_source|log_thread_id_source)\\('"
      " | sed 's/^[^(]*(//' | grep -E -v 'Platform(Window)?[[:space:]]*\\*'"},
+
+    /* PLAT-INV-14: a file-scope variable is a column-0 declaration with no "("
+     * before the name, ending in ";" or ",", and a function-pointer variable is
+     * a column-0 "(*name". .c, .m and .h are scanned: a backend-private header
+     * can carry state into every file that includes it. The second grep drops
+     * const and typedef lines (static const is allowed) and bare struct/union/
+     * enum forward declarations. Heuristic: an indented or multi-line file-scope
+     * declaration is not seen. */
+    {"guard: PLAT-INV-14 patterns compile",
+     "grep -E -e '" PLAT14_VAR "' -e '" PLAT14_FP "' /dev/null; test $? -eq 2"},
+    /* sed first removes what cannot qualify a declarator: string literals,
+     * {...} initializers, each "= value", and a function pointer's parameter
+     * list. What remains is checked as ONE declarator: a line still holding a
+     * "," declares several and is never exempt, so each declarator's constness
+     * counts on its own. A declarator is const when it has no "*" and a
+     * "const", or when "*const" follows its last "*" (the pointer itself);
+     * "static const char *p" keeps its pointer mutable, so it is flagged. */
+    {"PLAT-INV-14: no file-scope non-const variable under src/platform (.c, .m, .h)",
+     "grep -rnE --include='*.c' --include='*.m' --include='*.h'"
+     " -e '" PLAT14_VAR "' -e '" PLAT14_FP "' " PLAT_DIR
+     " | sed -E 's/\"[^\"]*\"//g; s/[{][^{}]*[}]//g; s/=[^,;]*//g; s/[)][[:space:]]*[(][^()]*[)]/)/g'"
+     " | grep -vE ':[0-9]+:[^*,]*\\bconst\\b[^*,]*$|:[0-9]+:[^,]*\\*[[:space:]]*const\\b[^*,]*$"
+     "|:[0-9]+:.*\\btypedef\\b|:[0-9]+:(struct|union|enum)[[:space:]]+[A-Za-z_0-9]+[[:space:]]*;'"},
 };
 
 int main(void) {
