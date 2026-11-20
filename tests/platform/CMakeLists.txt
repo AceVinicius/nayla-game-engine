@@ -18,3 +18,11 @@ add_executable(test_platform_smoke test_platform_smoke.c)
 target_link_libraries(test_platform_smoke PRIVATE engine_platform)
 target_compile_options(test_platform_smoke PRIVATE -Wall -Wextra -Wpedantic)
 add_test(NAME unit/platform_smoke COMMAND test_platform_smoke)
+
+# Stateless conformance (PLATFORM-100..102; PLAT-INV-6, -7, -8, -13). Never
+# skips (PLATFORM-101). The helper thread needs pthreads on POSIX hosts.
+find_package(Threads REQUIRED)
+add_executable(test_platform_stateless test_platform_stateless.c)
+target_link_libraries(test_platform_stateless PRIVATE engine_platform Threads::Threads)
+target_compile_options(test_platform_stateless PRIVATE -Wall -Wextra -Wpedantic)
+add_test(NAME contract/platform_stateless COMMAND test_platform_stateless)
