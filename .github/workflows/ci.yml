@@ -23,7 +23,10 @@ jobs:
 
       # The project requires a recent CMake (see CMakeLists.txt).
       - name: Install CMake and Ninja
-        run: python3 -m pip install --user --upgrade cmake ninja && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        run: |
+          python3 -m venv "$RUNNER_TEMP/tools"
+          "$RUNNER_TEMP/tools/bin/pip" install --upgrade cmake ninja
+          echo "$RUNNER_TEMP/tools/bin" >> "$GITHUB_PATH"
 
       # Warnings are errors: the project's bar is zero warnings.
       - name: Configure
