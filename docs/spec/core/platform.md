@@ -325,10 +325,12 @@ The application owns and sequences `Platform`, just as it owns the logger. Wheth
 
 ---
 
-## 11. Open ADR dependencies (not decided here)
+## 11. Open ADR dependencies and deferred decisions
 
 1. **Linux windowing strategy: X11, Wayland, or both.** specs.md §69 requires an ADR, and this spec deliberately does not decide it. The contract already accommodates every outcome: `X11` and `WAYLAND` native types are reserved (PLATFORM-071), and GPU backends degrade with `NOT_SUPPORTED` on a type they lack. `engine_platform_linux`, its CI display environment, and Linux conformance (PLATFORM-101) are blocked on that ADR. Nothing else in this spec is.
 2. **macOS backend language** (PLATFORM-095). It does not affect the contract.
+
+3. **A dedicated result code for OS failures (decided: not now).** PLATFORM-034 reuses `ENGINE_RESULT_NOT_SUPPORTED` for every OS-call failure rather than amending `result.md`. Reasons: CORE-RESULT-008 adds a code only when callers must tell two cases apart, and in this milestone every caller handles both the same way; the OS detail is logged where it happens. Known cost: "the OS refused" and "this platform lacks the feature" are indistinguishable from the code alone. Revisit when a caller must branch on the difference (retry vs. degrade, a headless case beyond PLATFORM-101, or a GPU backend separating "no capability" from "driver call failed"). The change is then a `result.md` amendment (e.g. `ENGINE_RESULT_PLATFORM_ERROR`) plus switching the call sites; the cost grows with the number of callers, so decide before many backends exist. Tracked in issue #18.
 
 ---
 
