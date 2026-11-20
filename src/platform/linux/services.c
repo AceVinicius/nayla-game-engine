@@ -4,7 +4,9 @@
 /* Feature-test macro before any include. The strict C23 mode this project uses
  * (CMAKE_C_EXTENSIONS OFF) hides clock_gettime, CLOCK_MONOTONIC, syscall and
  * SYS_gettid otherwise. Only this file needs it. */
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 
 #include <stdint.h>
 #include <time.h>

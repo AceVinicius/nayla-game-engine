@@ -51,10 +51,13 @@ target_link_libraries(${_nayla_backend_target} PUBLIC engine_platform_api engine
 
 target_compile_options(${_nayla_backend_target} PRIVATE -Wall -Wextra -Wpedantic)
 
-# PLAT-INV-3(c) and the foundation rules (no direct allocation, no direct output),
-# applied to the backend and the shared code, with no exemption.
+# PLAT-INV-3(c) and the foundation rules (no direct allocation, no direct
+# output), with no exemption, on EVERY backend directory and the shared code,
+# whichever backend is selected: CI builds only Linux and macOS, so this is what
+# polices src/platform/win32/.
 include(${CMAKE_SOURCE_DIR}/cmake/Common.cmake)
-foreach(_nayla_dir IN ITEMS ${_nayla_backend_dir} ${_nayla_common_dir})
+foreach(_nayla_dir IN ITEMS ${_nayla_platform_known} common)
+  set(_nayla_dir ${CMAKE_CURRENT_SOURCE_DIR}/${_nayla_dir})
   forbid_platform_os_sdk(${_nayla_backend_target} ${_nayla_dir})
   forbid_direct_allocation(${_nayla_backend_target} ${_nayla_dir})
   forbid_direct_output(${_nayla_backend_target} ${_nayla_dir})

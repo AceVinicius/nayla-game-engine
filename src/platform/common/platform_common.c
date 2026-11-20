@@ -51,6 +51,7 @@ EngineResult platform_init(Platform **out_platform,
         return ENGINE_RESULT_INVALID_ARGUMENT;
     }
 
+    (void)logger; /* ENGINE_LOG_ERROR compiles away when ENGINE_LOG_COMPILE_MIN_LEVEL > 4 */
     /* PLATFORM-033: the window-system probe fails before anything is allocated. */
     ENGINE_LOG_ERROR(logger, "Platform", "platform_init: no window system backend is implemented yet");
     return ENGINE_RESULT_NOT_SUPPORTED;

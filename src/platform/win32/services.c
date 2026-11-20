@@ -2,7 +2,9 @@
  * state, no caching (PLATFORM-024, PLATFORM-090). Not compiled on the macOS or
  * Linux development hosts; it is checked only by a Windows toolchain. */
 
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
 #include <windows.h>
 #include <stdint.h>
 
