@@ -104,6 +104,8 @@ Five codes. Each one is required by something already shipped or already normati
 | `ENGINE_RESULT_OUT_OF_MEMORY` | An allocation through the `EngineAllocator` returned NULL. | `engine.c:23`; ADR-009 §7 below. |
 | `ENGINE_RESULT_NOT_SUPPORTED` | The requested capability or format is unavailable on this backend, device, or platform. Not a bug; the documented signal for graceful degradation. | CLAUDE.md invariant #6, `rules/gpu.md` ("Optional features use capability queries"). |
 
+> **Note (`platform.md` PLATFORM-034, issue #18).** The Platform API also returns `ENGINE_RESULT_NOT_SUPPORTED` for any OS-call failure, which widens the meaning above: such a failure may be an environment or backend fault rather than an unavailable capability. No code or value changes. Whether to add a dedicated code (the deferred `_PLATFORM` below) is tracked in issue #18.
+
 ### Explicitly deferred, with reasons
 
 - **`ENGINE_RESULT_ALREADY_SHUTDOWN` — rejected, cannot be implemented honestly.** `engine_shutdown` frees the handle (`engine.c:47`); any later call through that pointer is a use-after-free, i.e. undefined behaviour, and the engine cannot reliably detect it. Defining a code for a condition no implementation can detect would document a guarantee that does not exist. "Already shut down" is a caller contract (CORE-RESULT-012), not a return value. A debug-build poison-and-detect scheme could change this later; it does not exist today.
