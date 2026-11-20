@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-11-20
 **Deciders:** `architect`
-**Amends:** `.claude/rules/platform.md` ("OS headers stay inside platform backends"); specs.md §MAC ("Native Apple APIs MUST remain isolated in the macOS backend"), for the one case below
+**Amends:** `.claude/rules/platform.md` ("OS headers stay inside platform backends"); specs.md §70 ("Native Apple APIs MUST remain isolated in the macOS backend"), for the one case below
 **Related:** `docs/spec/core/platform.md` PLATFORM-071..074, PLATFORM-094; specs.md §17, §18; CLAUDE.md invariants #1–#4; `rules/gpu.md`
 
 ---
@@ -44,4 +44,4 @@ PLATFORM-094 and `rules/platform.md` say OS headers appear only in platform back
 - The native boundary in GPU code becomes visible: a reviewer or a grep can list every file that touches OS window types.
 - Adding a native window type means adding one `surface_<type>` file per GPU backend that supports it. There are no core, renderer, or platform-backend changes, so CLAUDE.md's "switching backends MUST NOT require core/renderer changes" still holds.
 - The forbidden-include list is the one source for this check and for PLAT-INV-3. It replaces the current lowercase-only `windows|unistd|vulkan|d3d12|metal` patterns for OS headers.
-- Not decided here: how GPU backends resolve the `platform_window_get_native` symbol at link time (PLATFORM-093, review item 7).
+- Decided in platform.md PLATFORM-093: how GPU backends resolve the `platform_window_get_native` symbol at link time.
