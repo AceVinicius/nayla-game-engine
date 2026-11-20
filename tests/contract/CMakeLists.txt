@@ -14,3 +14,9 @@ add_test(NAME contract/allocator COMMAND test_allocator_contracts)
 add_executable(test_logger_contracts test_logger_contracts.c)
 target_link_libraries(test_logger_contracts PRIVATE engine_foundation)
 add_test(NAME contract/logger COMMAND test_logger_contracts)
+
+# Contract tests for the renderer. Links engine_renderer only, never
+# engine_core (ALLOC-INV-11).
+add_executable(test_renderer_contracts test_renderer_contracts.c)
+target_link_libraries(test_renderer_contracts PRIVATE engine_renderer)
+add_test(NAME contract/renderer COMMAND test_renderer_contracts)
