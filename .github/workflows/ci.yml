@@ -19,7 +19,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
         build_type: [Debug, Release]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The project requires a recent CMake (see CMakeLists.txt).
       - name: Install CMake and Ninja
@@ -39,5 +39,31 @@ jobs:
         run: cmake --build build
 
       # Includes the architecture tests (no OS/GPU includes, no globals, ...).
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  # Catches what warnings cannot: out-of-bounds, misaligned access, signed
+  # overflow, leaks (the allocator does pointer/alignment arithmetic).
+  sanitizers:
+    name: sanitizers (ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install CMake and Ninja
+        run: |
+          python3 -m venv "$RUNNER_TEMP/tools"
+          "$RUNNER_TEMP/tools/bin/pip" install --upgrade cmake ninja
+          echo "$RUNNER_TEMP/tools/bin" >> "$GITHUB_PATH"
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_COMPILE_WARNING_AS_ERROR=ON
+          -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer"
+
+      - name: Build
+        run: cmake --build build
+
       - name: Test
         run: ctest --test-dir build --output-on-failure
