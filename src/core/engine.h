@@ -6,7 +6,9 @@
 #include "src/core/logging.h"
 
 /* Opaque engine type. Owned by caller; lifetime explicit.
- * See docs/spec/core/engine.md for the contract.
+ * No engine spec exists yet (docs/spec/core/engine.md is unwritten, see
+ * logging.md CORE-LOG-084); the rules below come from allocator.md,
+ * logging.md and result.md.
  */
 typedef struct Engine Engine;
 
