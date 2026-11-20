@@ -231,8 +231,8 @@ ENGINE_NODISCARD EngineResult engine_log_set_level(EngineLogger *logger,
                                                    EngineLogLevel min_level);
 
 /* Get the logger's current runtime minimum level.
- * THREAD_SAFE against other reads. Mutators such as engine_log_set_level
- * must not run concurrently with it (CORE-LOG-072).
+ * EXTERNALLY_SYNCHRONIZED against engine_log_set_level: min_level is a plain
+ * int32_t, not an atomic (CORE-LOG-072/073).
  */
 EngineLogLevel engine_log_get_level(const EngineLogger *logger);
 
