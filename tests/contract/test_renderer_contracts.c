@@ -2,13 +2,14 @@
  * Links engine_renderer only, never engine_core (ALLOC-INV-11). */
 
 #include <stddef.h>
+#include <stdint.h>
 #include "src/renderer/api.h"
 #include "tests/check.h"
 
 /* Tracking allocator over the default one; all state in user_data. */
 typedef struct {
-    int allocs;
-    int frees;
+    int32_t allocs;
+    int32_t frees;
     void *last;
 } Tracker;
 
@@ -39,10 +40,15 @@ static void *always_fails(const EngineAllocator *allocator, size_t size, size_t 
     return NULL;
 }
 
+static void no_free(const EngineAllocator *allocator, void *memory) {
+    (void)allocator;
+    (void)memory;
+}
+
 /* Counts ERROR records; proves each failure path logged (CORE-LOG-005 says a
  * NULL logger discards, so a real logger is needed to observe this). */
 static void count_errors(const EngineLogSink *sink, const EngineLogRecord *record) {
-    int *errors = sink->user_data;
+    int32_t *errors = sink->user_data;
     *errors += record->level == ENGINE_LOG_LEVEL_ERROR;
 }
 
@@ -63,27 +69,29 @@ static int test_uses_injected_allocator(void) {
     EXPECT(renderer_init(&r, &allocator, NULL), ENGINE_RESULT_SUCCESS);
     CHECK(t.allocs == 1 && t.last == r, "renderer was not allocated through the injected allocator");
     EXPECT(renderer_shutdown(r), ENGINE_RESULT_SUCCESS);
-    CHECK(t.frees == t.allocs, "%d allocations but %d frees", t.allocs, t.frees);
+    CHECK(t.frees == t.allocs, "%d allocations but %d frees", (int)t.allocs, (int)t.frees);
     return 0;
 }
 
 static int test_failure_paths(void) {
     EngineLogger logger;
-    int errors = 0;
+    int32_t errors = 0;
     EngineLogSink sink = {.write = count_errors, .user_data = &errors, .min_level = ENGINE_LOG_LEVEL_TRACE};
     CHECK_OK(engine_log_init(&logger, ENGINE_LOG_LEVEL_TRACE));
     CHECK_OK(engine_log_add_sink(&logger, &sink));
 
-    EngineAllocator no_free = {.alloc = always_fails, .free = NULL};
-    EngineAllocator failing = {.alloc = always_fails, .free = tracked_free};
+    EngineAllocator null_free = {.alloc = always_fails, .free = NULL};
+    EngineAllocator failing = {.alloc = always_fails, .free = no_free};
     Renderer *r = NULL;
 
     EXPECT(renderer_init(NULL, NULL, &logger), ENGINE_RESULT_INVALID_ARGUMENT);
-    EXPECT(renderer_init(&r, &no_free, &logger), ENGINE_RESULT_INVALID_ARGUMENT);
+    CHECK(errors == 1, "NULL out-parameter: expected 1 ERROR record, got %d", (int)errors);
+    EXPECT(renderer_init(&r, &null_free, &logger), ENGINE_RESULT_INVALID_ARGUMENT);
     CHECK(r == NULL, "invalid allocator left the out-parameter non-NULL");
+    CHECK(errors == 2, "NULL free callback: expected 2 ERROR records, got %d", (int)errors);
     EXPECT(renderer_init(&r, &failing, &logger), ENGINE_RESULT_OUT_OF_MEMORY);
     CHECK(r == NULL, "allocation failure left the out-parameter non-NULL");
-    CHECK(errors == 3, "expected one ERROR record per failure path, got %d", errors);
+    CHECK(errors == 3, "allocation failure: expected 3 ERROR records, got %d", (int)errors);
 
     EXPECT(renderer_shutdown(NULL), ENGINE_RESULT_INVALID_ARGUMENT);
     engine_log_shutdown(&logger);
