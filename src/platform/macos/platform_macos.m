@@ -194,6 +194,9 @@ static void install_main_menu(void) {
             window_request_close(window);
         }
     }
+    /* PLATFORM-043: always cancel, so the application decides when to exit. This
+     * also defers logout and system shutdown until the app destroys its windows
+     * and quits. */
     return NSTerminateCancel;
 }
 
@@ -297,13 +300,17 @@ EngineResult platform_init(Platform **out_platform,
     platform->windows = NULL;
 
     @autoreleasepool {
+        /* PLATFORM-036: this runs on every init. Both calls are harmless when repeated
+         * on the persistent NSApp singleton, so re-init needs no once-only guard.
+         * The BOOL from setActivationPolicy: is intentionally ignored: a refusal
+         * leaves the default policy, which still lets the windows be shown. */
         [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
         [NSApp finishLaunching];
         platform->app_delegate = [[NaylaAppDelegate alloc] initWithPlatform:platform];
         if (!platform->app_delegate) {
             engine_free(resolved, queue);
             engine_free(resolved, platform);
-            ENGINE_LOG_ERROR(logger, "Platform", "platform_init: NaylaAppDelegate allocation failed");
+            ENGINE_LOG_ERROR(logger, "Platform", "platform_init: NaylaAppDelegate allocation returned nil (AppKit gives no error detail, PLATFORM-034)");
             return ENGINE_RESULT_NOT_SUPPORTED;
         }
         /* NSApp does not retain its delegate; the +1 from alloc belongs to the Platform. */
@@ -371,7 +378,7 @@ EngineResult platform_window_create(PlatformWindow **out_window,
                                                             backing:NSBackingStoreBuffered
                                                               defer:NO];
         if (!ns_window) {
-            ENGINE_LOG_ERROR(platform->logger, "Platform", "platform_window_create: NSWindow initialisation returned nil");
+            ENGINE_LOG_ERROR(platform->logger, "Platform", "platform_window_create: NSWindow initialisation returned nil (AppKit gives no error detail, PLATFORM-034)");
             return ENGINE_RESULT_NOT_SUPPORTED;
         }
         [ns_window setReleasedWhenClosed:NO];
@@ -398,14 +405,14 @@ EngineResult platform_window_create(PlatformWindow **out_window,
         if (!window->delegate) {
             window_release_os(nil, ns_window);
             engine_free(resolved, window);
-            ENGINE_LOG_ERROR(platform->logger, "Platform", "platform_window_create: NaylaWindowDelegate allocation failed");
+            ENGINE_LOG_ERROR(platform->logger, "Platform", "platform_window_create: NaylaWindowDelegate allocation returned nil (AppKit gives no error detail, PLATFORM-034)");
             return ENGINE_RESULT_NOT_SUPPORTED;
         }
 
         /* PLATFORM-041: the title is copied by NSString. Invalid UTF-8 is replaced
          * with U+FFFD rather than failing the call. */
         NSString *title = [NSString stringWithUTF8String:desc->title];
-        [ns_window setTitle:title ? title : @"�"];
+        [ns_window setTitle:title ? title : @"\uFFFD"];
         [ns_window setDelegate:window->delegate];
         [ns_window center];
         window_sync_size(window);

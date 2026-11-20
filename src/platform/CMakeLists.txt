@@ -43,7 +43,7 @@ if(NAYLA_PLATFORM_BACKEND STREQUAL "macos")
   # ADR-011 Decision 1: manual retain/release, set explicitly so a generator
   # default (Xcode's CLANG_ENABLE_OBJC_ARC) cannot switch it on.
   target_compile_options(${_nayla_backend_target} PRIVATE $<$<COMPILE_LANGUAGE:OBJC>:-fno-objc-arc>)
-  target_link_libraries(${_nayla_backend_target} PUBLIC "-framework AppKit")
+  target_link_libraries(${_nayla_backend_target} PRIVATE "-framework AppKit")
 endif()
 
 # PLAT-INV-3(c) and the foundation rules (no direct allocation, no direct

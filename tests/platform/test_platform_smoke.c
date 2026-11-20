@@ -80,6 +80,7 @@ static int test_platform_init_rules(void) {
         platform_shutdown(p);
     } else {
         CHECK(p == NULL, "platform_init left *out_platform non-NULL on failure");
+        fprintf(stderr, "skip: no window system reachable; platform_init returned NOT_SUPPORTED\n");
     }
     return 0;
 }
@@ -127,6 +128,16 @@ static int test_window_create_rules(void) {
         CHECK(w != NULL, "platform_window_create succeeded but left *out_window NULL");
         platform_window_destroy(w);
         platform_shutdown(real);
+    } else {
+        fprintf(stderr, "skip: no window system reachable; window create checked only for validation\n");
+#if !defined(__APPLE__)
+        /* The stub never dereferences the Platform, so the sentinel is safe here.
+         * The macOS backend dereferences it after creating an NSWindow, so the
+         * NOT_SUPPORTED check is not run with the sentinel on macOS. */
+        w = poison;
+        EXPECT(platform_window_create(&w, platform, NULL, &desc), ENGINE_RESULT_NOT_SUPPORTED);
+        CHECK(w == NULL, "platform_window_create left *out_window non-NULL");
+#endif
     }
     return 0;
 }
