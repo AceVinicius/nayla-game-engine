@@ -3,23 +3,7 @@
 
 #include <stdio.h>
 #include "src/core/logging.h"
-
-#define CHECK(cond, ...) \
-    do { \
-        if (!(cond)) { \
-            fprintf(stderr, "✗ " __VA_ARGS__); \
-            fputc('\n', stderr); \
-            return 1; \
-        } \
-    } while (0)
-
-/* Assert the exact result code, not merely "not success". */
-#define EXPECT(call, code) \
-    do { \
-        EngineResult got_ = (call); \
-        CHECK(got_ == (code), #call " returned %s, expected %s", \
-              engine_result_name(got_), engine_result_name(code)); \
-    } while (0)
+#include "tests/check.h"
 
 /* A sink that counts the records it receives in its user_data. */
 static void count_write(const EngineLogSink *sink, const EngineLogRecord *record) {
@@ -114,24 +98,12 @@ static int test_sink_identity_is_the_pointer(void) {
 }
 
 int main(void) {
-    static const struct {
-        const char *name;
-        int (*run)(void);
-    } tests[] = {
+    static const TestCase tests[] = {
         {"add_sink rejects NULL, missing write, bad level", test_add_sink_rejects_bad_input},
         {"add_sink rejects duplicate and full table", test_add_sink_rejects_full_table_and_duplicate},
         {"remove_sink contract", test_remove_sink_contract},
         {"sink identity is the pointer", test_sink_identity_is_the_pointer},
     };
 
-    int failed = 0;
-    for (size_t i = 0; i < sizeof(tests) / sizeof(tests[0]); i++) {
-        if (tests[i].run() == 0) {
-            printf("✓ %s\n", tests[i].name);
-        } else {
-            fprintf(stderr, "✗ %s\n", tests[i].name);
-            failed++;
-        }
-    }
-    return failed != 0;
+    return RUN_TESTS(tests);
 }

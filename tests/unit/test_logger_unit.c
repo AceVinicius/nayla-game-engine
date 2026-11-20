@@ -8,16 +8,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "src/core/logging.h"
-
-#define CHECK(cond, ...) \
-    do { \
-        if (!(cond)) { \
-            fprintf(stderr, "✗ " __VA_ARGS__); \
-            fputc('\n', stderr); \
-            return 1; \
-        } \
-    } while (0)
-#define CHECK_OK(expr) CHECK((expr) == ENGINE_RESULT_SUCCESS, #expr " failed")
+#include "tests/check.h"
 
 /* Capture sink: records every delivered record. All state lives in user_data
  * (never a file-scope mutable sink), and the message is COPIED because the
@@ -213,10 +204,7 @@ static int test_console_sink(void) {
 }
 
 int main(void) {
-    static const struct {
-        const char *name;
-        int (*run)(void);
-    } tests[] = {
+    static const TestCase tests[] = {
         {"LOG-INV-3  level names", test_level_name},
         {"LOG-INV-4  NULL tolerance", test_null_tolerance},
         {"LOG-INV-6  level gating", test_level_gating},
@@ -226,14 +214,5 @@ int main(void) {
         {"LOG-INV-14 console sink", test_console_sink},
     };
 
-    int failed = 0;
-    for (size_t i = 0; i < sizeof(tests) / sizeof(tests[0]); i++) {
-        if (tests[i].run() == 0) {
-            printf("✓ %s\n", tests[i].name);
-        } else {
-            fprintf(stderr, "✗ %s\n", tests[i].name);
-            failed++;
-        }
-    }
-    return failed != 0;
+    return RUN_TESTS(tests);
 }

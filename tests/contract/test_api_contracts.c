@@ -1,55 +1,30 @@
-#include <stdio.h>
+/* Engine API contract: init, tick and shutdown succeed in order, and invalid
+ * arguments return exactly ENGINE_RESULT_INVALID_ARGUMENT (RESULT-INV-8). */
+
 #include "src/core/engine.h"
+#include "tests/check.h"
 
-/* Test: engine API contracts work as specified.
- * Verifies that engine lifecycle (init → tick → shutdown) succeeds.
- */
-int main(void) {
+static int test_lifecycle(void) {
     Engine *e = NULL;
-    EngineResult err;
 
-    printf("Testing engine API contracts...\n");
-
-    /* Test engine_init() returns ENGINE_RESULT_SUCCESS */
-    err = engine_init(&e, NULL, NULL);
-    if (err != ENGINE_RESULT_SUCCESS) {
-        fprintf(stderr, "✗ engine_init() failed with error %s\n", engine_result_name(err));
-        return 1;
-    }
-    if (e == NULL) {
-        fprintf(stderr, "✗ engine_init() did not allocate engine\n");
-        return 1;
-    }
-    printf("✓ engine_init() succeeds and allocates memory\n");
-
-    /* Test engine_tick() accepts initialized engine */
-    err = engine_tick(e);
-    if (err != ENGINE_RESULT_SUCCESS) {
-        fprintf(stderr, "✗ engine_tick() failed with error %s\n", engine_result_name(err));
-        EngineResult shutdown_err = engine_shutdown(e);
-        if (shutdown_err != ENGINE_RESULT_SUCCESS) {
-            fprintf(stderr, "✗ engine_shutdown() also failed during error cleanup\n");
-        }
-        return 1;
-    }
-    printf("✓ engine_tick() succeeds on initialized engine\n");
-
-    /* Test engine_shutdown() returns ENGINE_RESULT_SUCCESS */
-    err = engine_shutdown(e);
-    if (err != ENGINE_RESULT_SUCCESS) {
-        fprintf(stderr, "✗ engine_shutdown() failed with error %s\n", engine_result_name(err));
-        return 1;
-    }
-    printf("✓ engine_shutdown() succeeds and frees memory\n");
-
-    /* Test error handling: tick on NULL (RESULT-INV-8) */
-    err = engine_tick(NULL);
-    if (err != ENGINE_RESULT_INVALID_ARGUMENT) {
-        fprintf(stderr, "✗ engine_tick(NULL) should return ENGINE_RESULT_INVALID_ARGUMENT, got %s\n", engine_result_name(err));
-        return 1;
-    }
-    printf("✓ engine_tick(NULL) returns ENGINE_RESULT_INVALID_ARGUMENT as specified\n");
-
-    printf("\n✅ All API contract tests passed!\n");
+    EXPECT(engine_init(&e, NULL, NULL), ENGINE_RESULT_SUCCESS);
+    CHECK(e != NULL, "engine_init succeeded but returned no engine");
+    EXPECT(engine_tick(e), ENGINE_RESULT_SUCCESS);
+    EXPECT(engine_shutdown(e), ENGINE_RESULT_SUCCESS);
     return 0;
+}
+
+static int test_invalid_arguments(void) {
+    EXPECT(engine_init(NULL, NULL, NULL), ENGINE_RESULT_INVALID_ARGUMENT);
+    EXPECT(engine_tick(NULL), ENGINE_RESULT_INVALID_ARGUMENT);
+    EXPECT(engine_shutdown(NULL), ENGINE_RESULT_INVALID_ARGUMENT);
+    return 0;
+}
+
+int main(void) {
+    static const TestCase tests[] = {
+        {"engine lifecycle", test_lifecycle},
+        {"invalid arguments", test_invalid_arguments},
+    };
+    return RUN_TESTS(tests);
 }

@@ -1,74 +1,41 @@
+/* LOG-INV-13: the compile-time gate REMOVES log call sites; it does not merely
+ * filter them at runtime. Built twice from this one source with different
+ * ENGINE_LOG_COMPILE_MIN_LEVEL values (tests/integration/CMakeLists.txt):
+ *   level 4: ENGINE_LOG_TRACE expands to ((void)0), so its argument is never
+ *            evaluated and the counter stays 0.
+ *   level 0: the full call is compiled in; the argument is evaluated once.
+ *
+ * The side-effecting log argument below is deliberate. CORE-LOG-062 forbids it
+ * in engine code; here it is the only way to observe elimination, and this
+ * file is the one sanctioned exception. */
+
 #include <stdint.h>
-#include <stdio.h>
 #include "src/core/logging.h"
+#include "tests/check.h"
 
-/* LOG-INV-13: Compile-time gate removes call sites entirely, not just filters at runtime.
- *
- * This test demonstrates that ENGINE_LOG_COMPILE_MIN_LEVEL produces two observably
- * different binaries from the same source:
- * - At LEVEL=4 (ERROR): ENGINE_LOG_TRACE expands to ((void)0), so the side-effecting
- *   argument is never evaluated, and counter remains 0.
- * - At LEVEL=0 (TRACE): ENGINE_LOG_TRACE expands to the full call, argument is
- *   evaluated, counter increments to 1.
- *
- * CORE-LOG-062 forbids side-effecting log arguments in normal engine code.
- * This test deliberately violates that rule to prove the compile-time gate works.
- * This file is an intentional exception to CORE-LOG-062, as the point of the test
- * is state-based verification of compile-time elimination.
- */
+static uint32_t counter;
 
-static uint32_t counter = 0;
-
-/* Function with a side effect: increments counter and returns it.
- * Used to prove that the log macro argument is evaluated or not.
- */
 static uint32_t counter_that_increments(void) {
     return ++counter;
 }
 
-int main(void) {
-    /* Create a logger (NULL is valid per CORE-LOG-005) */
+static int test_compile_gate(void) {
     EngineLogger logger;
-    EngineResult err = engine_log_init(&logger, ENGINE_LOG_LEVEL_TRACE);
-    if (err != ENGINE_RESULT_SUCCESS) {
-        fprintf(stderr, "Failed to initialize logger\n");
-        return 1;
-    }
+    CHECK_OK(engine_log_init(&logger, ENGINE_LOG_LEVEL_TRACE));
 
-    /* Call ENGINE_LOG_TRACE with a side-effecting argument.
-     * If compiled with ENGINE_LOG_COMPILE_MIN_LEVEL=0 (TRACE):
-     *   The macro expands to a full call, counter_that_increments() is evaluated,
-     *   counter becomes 1, and the logging call proceeds.
-     * If compiled with ENGINE_LOG_COMPILE_MIN_LEVEL=4 (ERROR):
-     *   The macro expands to ((void)0), counter_that_increments() is NOT evaluated,
-     *   counter remains 0, and no logging occurs.
-     */
     ENGINE_LOG_TRACE(&logger, "Core", "Counter: %u", counter_that_increments());
 
-    /* Verify the expected state */
-    #if ENGINE_LOG_COMPILE_MIN_LEVEL <= 0
-        /* At compile level TRACE or DEBUG: counter should be 1 (call was made) */
-        if (counter != 1) {
-            fprintf(stderr, "ERROR: At COMPILE_MIN_LEVEL=%d, expected counter=1 but got %u\n",
-                    ENGINE_LOG_COMPILE_MIN_LEVEL, counter);
-            engine_log_shutdown(&logger);
-            return 1;
-        }
-        printf("✓ Compile level %d: ENGINE_LOG_TRACE was compiled in, counter incremented to %u\n",
-               ENGINE_LOG_COMPILE_MIN_LEVEL, counter);
-    #else
-        /* At compile level higher than TRACE: counter should be 0 (call was optimized out) */
-        if (counter != 0) {
-            fprintf(stderr, "ERROR: At COMPILE_MIN_LEVEL=%d, expected counter=0 but got %u\n",
-                    ENGINE_LOG_COMPILE_MIN_LEVEL, counter);
-            engine_log_shutdown(&logger);
-            return 1;
-        }
-        printf("✓ Compile level %d: ENGINE_LOG_TRACE was optimized out, counter remains %u\n",
-               ENGINE_LOG_COMPILE_MIN_LEVEL, counter);
-    #endif
+    const uint32_t expected = ENGINE_LOG_COMPILE_MIN_LEVEL <= 0 ? 1 : 0;
+    CHECK(counter == expected, "at COMPILE_MIN_LEVEL=%d expected counter=%u, got %u",
+          ENGINE_LOG_COMPILE_MIN_LEVEL, expected, counter);
 
     engine_log_shutdown(&logger);
-    printf("✅ Compile-time gate test passed (LOG-INV-13)\n");
     return 0;
+}
+
+int main(void) {
+    static const TestCase tests[] = {
+        {"LOG-INV-13 compile-time gate", test_compile_gate},
+    };
+    return RUN_TESTS(tests);
 }
