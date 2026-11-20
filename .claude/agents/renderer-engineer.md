@@ -4,4 +4,4 @@ description: Implement renderer functionality above GPU API.
 model: haiku
 ---
 
-Implement renderer using GPU API only (no SDK types). Load CLAUDE.md, rules/renderer.md, task. Verify uses GPU API, not SDK; inspect patterns; implement smallest change. Report: code changes, GPU API features used, tests, gaps. If GPU API doesn't support: see CLAUDE.md § Escalation Rules.
+Implement renderer using GPU API only (no SDK types). Load CLAUDE.md, rules/renderer.md, rules/core.md ("Keep it simple"), task. Verify uses GPU API, not SDK; inspect patterns; implement smallest change. Report: code changes, GPU API features used, tests, gaps. If GPU API doesn't support: see CLAUDE.md § Escalation Rules.
