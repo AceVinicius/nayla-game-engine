@@ -9,7 +9,8 @@
 #include <stdlib.h>
 #include "src/core/engine.h"
 
-#if !defined(NAYLA_CORE_SRC_DIR) || !defined(NAYLA_RENDERER_SRC_DIR) || !defined(NAYLA_REPO_ROOT)
+#if !defined(NAYLA_CORE_SRC_DIR) || !defined(NAYLA_RENDERER_SRC_DIR) || !defined(NAYLA_REPO_ROOT) || \
+    !defined(NAYLA_PLATFORM_SRC_DIR) || !defined(NAYLA_GPU_SRC_DIR)
 # error "NAYLA_*_DIR / NAYLA_REPO_ROOT must be defined by CMake (tests/architecture/CMakeLists.txt)"
 #endif
 
@@ -17,6 +18,8 @@
 #define CORE Q(NAYLA_CORE_SRC_DIR)
 #define REND Q(NAYLA_RENDERER_SRC_DIR)
 #define BOTH CORE " " REND
+#define API_H Q(NAYLA_PLATFORM_SRC_DIR "/api.h")
+#define NATIVE_H Q(NAYLA_PLATFORM_SRC_DIR "/native.h")
 
 #define ALLOC_CALLS "\\b(malloc|calloc|realloc|aligned_alloc|free)\\s*\\("
 /* grep -v matches the file path prefix of each "path:line:text" hit. */
@@ -86,6 +89,43 @@ static const Check checks[] = {
      "test \"$(grep -cE '^#[[:space:]]*include' '" NAYLA_CORE_SRC_DIR "/logging.h')\" -ne 5"},
     {"LOG-INV-10: logging.h avoids allocator.h, stdio.h, malloc, _Atomic",
      "grep -E 'allocator\\.h|<stdio\\.h>|malloc|_Atomic' '" NAYLA_CORE_SRC_DIR "/logging.h'"},
+
+    /* PLAT-INV-2: native handles stay in platform/GPU backends and tests/platform/.
+     * This file names them to check for them, so it is excluded. */
+    {"PLAT-INV-2: no native-handle names outside backends and tests/platform",
+     "grep -rE 'platform/native\\.h|PlatformNative(Window|Object)|platform_window_get_native' "
+     CORE " " REND " " API_H " " Q(NAYLA_GPU_SRC_DIR "/api.h") " " Q(NAYLA_REPO_ROOT "/tests")
+     " | grep -v '/tests/platform/' | grep -v '/test_core_invariants.c:'"},
+
+    /* PLAT-INV-3(a): exact include sets (PLATFORM-094), sorted so order does not matter.
+     * Spaces are stripped so "#include <x>" and "#include<x>" compare equal. */
+    {"PLAT-INV-3(a): api.h includes exactly PLATFORM-094's set",
+     "test \"$(grep -E '^#[[:space:]]*include' " API_H " | sed 's/[[:space:]]//g' | sort)\""
+     " != \"$(printf '%s\\n' '#include<stdbool.h>' '#include<stddef.h>' '#include<stdint.h>'"
+     " '#include\"src/core/result.h\"' '#include\"src/core/allocator.h\"'"
+     " '#include\"src/core/logging.h\"' | sort)\""},
+    {"PLAT-INV-3(a): native.h includes exactly PLATFORM-094's set",
+     "test \"$(grep -E '^#[[:space:]]*include' " NATIVE_H " | sed 's/[[:space:]]//g' | sort)\""
+     " != \"$(printf '%s\\n' '#include<stdint.h>' '#include\"src/platform/api.h\"' | sort)\""},
+    {"PLAT-INV-3(a): platform headers have no void * outside user_data",
+     "grep -nE 'void[[:space:]]*\\*' " API_H " " NATIVE_H " | grep -v user_data"},
+    {"PLAT-INV-3(a): platform headers have no bool struct field",
+     "grep -nE '^[[:space:]]+bool[[:space:]]' " API_H " " NATIVE_H},
+    {"PLAT-INV-3(a): platform headers have no u32-style shorthand",
+     "grep -nwE 'u(8|16|32|64)' " API_H " " NATIVE_H},
+    {"PLAT-INV-3(a): platform headers have no _t-suffixed engine type",
+     "grep -howE '[A-Za-z_][A-Za-z0-9_]*_t' " API_H " " NATIVE_H
+     " | grep -vE '^(u?int(8|16|32|64)|size|ptrdiff|max_align|intptr|uintptr)_t$'"},
+
+    /* PLAT-INV-5: the only Platform API declarations without a Platform or
+     * PlatformWindow pointer parameter are the four stateless functions.
+     * Column-0 lines are declarations, pointer-returning ones included; sed
+     * drops everything up to the "(" so only the parameter list is checked.
+     * A multi-line declaration keeps its first parameter on its first line. */
+    {"PLAT-INV-5: only the four stateless functions lack a Platform pointer",
+     "grep -E '^[A-Za-z_][A-Za-z0-9_ *]*[[:space:]*]platform_[a-z0-9_]+\\(' " API_H
+     " | grep -vE 'platform_(time_now_ns|thread_current_id|log_time_source|log_thread_id_source)\\('"
+     " | sed 's/^[^(]*(//' | grep -E -v 'Platform(Window)?[[:space:]]*\\*'"},
 };
 
 int main(void) {
