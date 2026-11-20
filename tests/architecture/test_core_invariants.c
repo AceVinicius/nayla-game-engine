@@ -10,8 +10,9 @@
 #include "src/core/engine.h"
 
 #if !defined(NAYLA_CORE_SRC_DIR) || !defined(NAYLA_RENDERER_SRC_DIR) || !defined(NAYLA_REPO_ROOT) || \
-    !defined(NAYLA_PLATFORM_SRC_DIR) || !defined(NAYLA_GPU_SRC_DIR) || !defined(NAYLA_FORBIDDEN_INCLUDES)
-# error "NAYLA_*_DIR / NAYLA_REPO_ROOT / NAYLA_FORBIDDEN_INCLUDES must be defined by CMake (tests/architecture/CMakeLists.txt)"
+    !defined(NAYLA_PLATFORM_SRC_DIR) || !defined(NAYLA_GPU_SRC_DIR) || !defined(NAYLA_FORBIDDEN_INCLUDES) || \
+    !defined(NAYLA_FORBIDDEN_GPU_SDK_INCLUDES)
+# error "NAYLA_*_DIR / NAYLA_REPO_ROOT / NAYLA_FORBIDDEN_*INCLUDES must be defined by CMake (tests/architecture/CMakeLists.txt)"
 #endif
 
 #define Q(path) "'" path "'"
@@ -26,9 +27,24 @@
 /* The shared PLAT-INV-3(b) list, the same file cmake/Common.cmake reads.
  * grep -i: the match is case-insensitive. */
 #define FORBIDDEN_LIST Q(NAYLA_FORBIDDEN_INCLUDES)
+#define GPU_SDK_LIST Q(NAYLA_FORBIDDEN_GPU_SDK_INCLUDES)
 #define NO_FORBIDDEN(where, paths) \
     {"PLAT-INV-3(b): no forbidden includes in " where, \
      "grep -rniE -f " FORBIDDEN_LIST " " paths}
+#define NO_GPU_SDK(where, paths) \
+    {"PLAT-INV-3(b): no GPU SDK includes in " where, \
+     "grep -rniE -f " GPU_SDK_LIST " " paths}
+/* A grep error (missing file, invalid regex) exits 2, and a row counts exit 0
+ * as a violation, so an error would pass silently. This row fails when the
+ * list is empty or missing, or when grep cannot compile it (exit 2). */
+#define LIST_GUARD(name, list) \
+    {"guard: " name " list is present and compiles", \
+     "test ! -s " list " || { grep -E -f " list " /dev/null; test $? -eq 2; }"}
+/* PLAT-INV-14 patterns, shared by the row and its guard.
+ * VAR: a column-0 declaration, with an optional array suffix, ending in ";" or ",".
+ * FP: a column-0 function-pointer declarator "(*name". */
+#define PLAT14_VAR "^[A-Za-z_][A-Za-z0-9_ *]*[ *][*]?[A-Za-z_][A-Za-z0-9_]*(\\[[^]]*\\])*[[:space:]]*(=[^;]*)?[;,]"
+#define PLAT14_FP "^[^(#]*\\([[:space:]]*\\*[[:space:]]*[A-Za-z_]"
 
 #define ALLOC_CALLS "\\b(malloc|calloc|realloc|aligned_alloc|free)\\s*\\("
 /* grep -v matches the file path prefix of each "path:line:text" hit. */
@@ -45,13 +61,13 @@ typedef struct {
 } Check;
 
 static const Check checks[] = {
+    LIST_GUARD("forbidden-includes", FORBIDDEN_LIST),
+    LIST_GUARD("GPU SDK", GPU_SDK_LIST),
     NO_FORBIDDEN("core and renderer", BOTH),
     NO_FORBIDDEN("platform api.h", API_H),
     NO_FORBIDDEN("platform native.h", NATIVE_H),
     NO_FORBIDDEN("gpu api.h", GPU_API_H),
-    /* Vulkan/D3D12/Metal in either include or import form, any case. */
-    {"PLAT-INV-3(b): no GPU SDK headers in core or renderer",
-     "grep -rniE '#[[:space:]]*(include|import)[[:space:]]*<(vulkan|d3d12|metal)' " BOTH},
+    NO_GPU_SDK("core and renderer", BOTH),
 
     {"ALLOC-INV-7: no direct allocation in core outside allocator.c",
      "grep -rE '" ALLOC_CALLS "' " CORE NOT_IN("allocator.c")},
@@ -145,11 +161,18 @@ static const Check checks[] = {
      * const and typedef lines (static const is allowed) and bare struct/union/
      * enum forward declarations. Heuristic: an indented or multi-line file-scope
      * declaration is not seen. */
+    {"guard: PLAT-INV-14 patterns compile",
+     "grep -E -e '" PLAT14_VAR "' -e '" PLAT14_FP "' /dev/null; test $? -eq 2"},
+    /* The initializer is cut off first (sed), so "const" in a value cannot
+     * hide a mutable declarator. A declarator is const when it has no "*" and
+     * a "const", or when "*const" follows the last "*" (pointer itself const).
+     * "static const char *p" keeps its pointer mutable, so it is flagged. */
     {"PLAT-INV-14: no file-scope non-const variable under src/platform (.c, .m)",
      "grep -rnE --include='*.c' --include='*.m'"
-     " -e '^[A-Za-z_][A-Za-z0-9_ *]*[ *][*]?[A-Za-z_][A-Za-z0-9_]*[[:space:]]*(=[^;]*)?[;,]'"
-     " -e '^[^(#]*\\([[:space:]]*\\*[[:space:]]*[A-Za-z_]' " PLAT_DIR
-     " | grep -vE ':[0-9]+:.*\\b(const|typedef)\\b|:[0-9]+:(struct|union|enum)[[:space:]]+[A-Za-z_0-9]+[[:space:]]*;'"},
+     " -e '" PLAT14_VAR "' -e '" PLAT14_FP "' " PLAT_DIR
+     " | sed -E 's/=.*$//'"
+     " | grep -vE ':[0-9]+:[^*]*\\bconst\\b[^*]*$|:[0-9]+:.*\\*[[:space:]]*const\\b[^*]*$"
+     "|:[0-9]+:.*\\btypedef\\b|:[0-9]+:(struct|union|enum)[[:space:]]+[A-Za-z_0-9]+[[:space:]]*;'"},
 };
 
 int main(void) {

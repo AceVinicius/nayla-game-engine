@@ -11,9 +11,11 @@ add_subdirectory(renderer)
 # not resolve ALIAS targets.
 include(${CMAKE_SOURCE_DIR}/cmake/Common.cmake)
 forbid_transitive_link(engine_renderer engine_core ALLOC-INV-11)
-foreach(_forbidden IN ITEMS engine_platform_api engine_platform engine_platform_win32 engine_platform_macos engine_platform_linux)
+
+set(_nayla_platform_backends engine_platform engine_platform_win32 engine_platform_macos engine_platform_linux)
+foreach(_forbidden IN ITEMS engine_platform_api ${_nayla_platform_backends})
   forbid_transitive_link(engine_renderer ${_forbidden} PLAT-INV-4)
 endforeach()
-foreach(_forbidden IN ITEMS engine_platform engine_platform_win32 engine_platform_macos engine_platform_linux)
+foreach(_forbidden IN LISTS _nayla_platform_backends)
   forbid_transitive_link(engine_core ${_forbidden} PLAT-INV-4)
 endforeach()
