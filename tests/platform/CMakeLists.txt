@@ -11,3 +11,10 @@ foreach(_std IN ITEMS 17 23)
     add_test(NAME architecture/platform_header_${_hdr}_c${_std} COMMAND ${_name})
   endforeach()
 endforeach()
+
+# Smoke test: links the selected backend (PLATFORM-092) so it is compiled and
+# exercised. The full conformance suite is a separate task.
+add_executable(test_platform_smoke test_platform_smoke.c)
+target_link_libraries(test_platform_smoke PRIVATE engine_platform)
+target_compile_options(test_platform_smoke PRIVATE -Wall -Wextra -Wpedantic)
+add_test(NAME unit/platform_smoke COMMAND test_platform_smoke)

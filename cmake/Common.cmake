@@ -71,8 +71,8 @@ function(forbid_gpu_backend_includes target dir)
   _nayla_forbid(${target} "forbidden include in GPU backend (PLAT-INV-3(b), ADR-010)" "${NAYLA_FORBIDDEN_INCLUDE_RE}" "${dir}" "^surface_(win32|cocoa|x11|wayland)\\.(c|m)$" 1)
 endfunction()
 
-# PLAT-INV-3(c) for a platform backend directory (src/platform/<os>/). Helper
-# only: no platform backend target exists yet (#30 adds them and calls this).
+# PLAT-INV-3(c) for a platform backend directory (src/platform/<os>/), called
+# from src/platform/CMakeLists.txt for the selected backend.
 # Usage: forbid_platform_os_sdk(target dir)
 function(forbid_platform_os_sdk target dir)
   _nayla_forbid(${target} "GPU SDK token on an include line in platform backend (PLAT-INV-3(c))" "${NAYLA_PLATFORM_SDK_INCLUDE_RE}" "${dir}" "" 1)
