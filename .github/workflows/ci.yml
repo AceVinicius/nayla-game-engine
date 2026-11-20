@@ -19,7 +19,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
         build_type: [Debug, Release]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The project requires a recent CMake (see CMakeLists.txt).
       - name: Install CMake and Ninja
@@ -48,7 +48,7 @@ jobs:
     name: sanitizers (ubuntu)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install CMake and Ninja
         run: |
