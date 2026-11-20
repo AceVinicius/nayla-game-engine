@@ -73,6 +73,14 @@ Workflows run sequentially or in pipeline; barriers only when all results needed
 - **Output**: Prefer `agent(schema:)` for structured data; avoid prose summaries.
 - **Large files**: Read in chunks; never load full diffs or logs.
 
+## Git Workflow
+
+- `main` is protected: always green, changes only through PRs.
+- One branch per task: `task/NNN-short-name` (NNN = GitHub issue number). Chores: `chore/...`.
+- Create the issue first (`task-planner`); the PR body says `Closes #N`.
+- Before opening a PR: build + `ctest` in Debug and Release (zero warnings) and a `reviewer` pass.
+- CI must pass. Squash-merge; the branch is deleted on merge.
+
 ## Source of Truth
 
 - Spec/architecture → `docs/`
