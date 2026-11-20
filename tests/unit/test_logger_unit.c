@@ -152,18 +152,16 @@ static int test_null_tolerance(void) {
  *
  * Per Requirement 5: "Build the test so it is not silently vacuous under
  * a compile-time gate: assert the ENGINE_LOG_COMPILE_MIN_LEVEL in effect is 0
- * for this translation unit, or call engine_log_write directly."
+ * for this translation unit, or call engine_log_write directly." This test
+ * satisfies the second option: every call below is to engine_log_write
+ * itself, never through an ENGINE_LOG_* macro, so runtime gating is what is
+ * under test regardless of ENGINE_LOG_COMPILE_MIN_LEVEL's value in this
+ * translation unit — asserting the compile-time value here would be
+ * redundant, and would (and did) break under a Release build's higher
+ * default level.
  */
 static int test_level_gating(void) {
     printf("Testing LOG-INV-6: level-based gating...\n");
-
-    /* Verify compile-time gate is at TRACE for this test (allowing direct calls). */
-    if (ENGINE_LOG_COMPILE_MIN_LEVEL != 0) {
-        fprintf(stderr, "✗ ENGINE_LOG_COMPILE_MIN_LEVEL is %d, expected 0 for this test\n",
-                ENGINE_LOG_COMPILE_MIN_LEVEL);
-        return 1;
-    }
-    printf("  ✓ ENGINE_LOG_COMPILE_MIN_LEVEL is 0 (not vacuous)\n");
 
     EngineLogger logger;
     if (engine_log_init(&logger, ENGINE_LOG_LEVEL_WARN) != ENGINE_RESULT_SUCCESS) {

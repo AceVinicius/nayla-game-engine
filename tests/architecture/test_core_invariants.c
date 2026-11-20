@@ -11,6 +11,10 @@
 # error "NAYLA_RENDERER_SRC_DIR must be defined by CMake (see tests/architecture/CMakeLists.txt)"
 #endif
 
+#ifndef NAYLA_REPO_ROOT
+# error "NAYLA_REPO_ROOT must be defined by CMake (see tests/architecture/CMakeLists.txt)"
+#endif
+
 /* grep exit 0 = pattern found = forbidden header present. Checked here
  * independently of cmake/forbid_os_gpu_includes() so a regression in the
  * build-time check (e.g. quoting/escaping through the generator) cannot
@@ -249,8 +253,26 @@ int main(void) {
     printf("✓ Core and renderer have no file-scope mutable logger state (LOG-INV-5)\n");
 
     /* LOG-INV-5 symbol check: no *default_logger*, *global_log*, or *log_set_global*
-     * anywhere in the repo (including tests, main.c, backends). Repository-wide scope. */
-    snprintf(cmd, sizeof(cmd), "grep -rE 'default_logger|global_log|log_set_global' '%s/..' 2>/dev/null", NAYLA_CORE_SRC_DIR);
+     * anywhere in compilable source (including tests, main.c, backends).
+     * Repository-wide scope: NAYLA_REPO_ROOT, not a "src/core/.." relative
+     * hack — a prior version used NAYLA_CORE_SRC_DIR + "/.." here, which
+     * resolves to <repo>/src, not the repo root, so main.c and tests/ were
+     * silently uncovered (verified false-negative on injection into main.c).
+     * Scoped to C source and header files, and excluding this file: the
+     * docs/spec and tasks/backlog trees necessarily discuss these forbidden
+     * names in their own rationale prose (e.g. logging.md's "why not
+     * engine_default_logger()"), and this check's own comments and error
+     * string name them too — a genuinely unscoped grep self-matches its own
+     * documentation and source (verified: an unscoped version failed on a
+     * clean tree by matching logging.md and this very file). The invariant
+     * is about symbols in code, not prose about the invariant.
+     * --exclude-dir drops generated build trees. */
+    snprintf(cmd, sizeof(cmd),
+             "grep -rE --include='*.c' --include='*.h' "
+             "--exclude='test_core_invariants.c' "
+             "--exclude-dir='cmake-build-*' --exclude-dir='.git' "
+             "'default_logger|global_log|log_set_global' '%s' 2>/dev/null",
+             NAYLA_REPO_ROOT);
     if (system(cmd) == 0) {
         fprintf(stderr, "✗ Repository contains forbidden global logger symbols (default_logger, global_log, log_set_global)\n");
         return 1;

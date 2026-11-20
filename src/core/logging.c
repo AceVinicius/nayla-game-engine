@@ -1,7 +1,6 @@
 #include "src/core/logging.h"
 
 #include <stdio.h>
-#include <string.h>
 
 /* Engine logging implementation.
  * See docs/spec/core/logging.md for the full contract.

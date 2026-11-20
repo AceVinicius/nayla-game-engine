@@ -5,6 +5,7 @@ target_link_libraries(test_core_invariants PRIVATE engine_core)
 target_compile_definitions(test_core_invariants PRIVATE
   NAYLA_CORE_SRC_DIR="${CMAKE_SOURCE_DIR}/src/core"
   NAYLA_RENDERER_SRC_DIR="${CMAKE_SOURCE_DIR}/src/renderer"
+  NAYLA_REPO_ROOT="${CMAKE_SOURCE_DIR}"
 )
 
 add_test(NAME architecture/core_invariants COMMAND test_core_invariants)
