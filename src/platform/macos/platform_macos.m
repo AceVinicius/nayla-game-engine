@@ -100,19 +100,25 @@ static void queue_purge_window(Platform *platform, const PlatformWindow *window)
 /* ---- Window state (PLATFORM-042, PLATFORM-043) --------------------------- */
 
 /* Physical pixels: the content view's bounds converted through its backing
- * scale. A minimized window reports 0 x 0 (PLATFORM-042). */
+ * scale. A minimized or otherwise zero-area window reports 0 x 0 on both axes
+ * (PLATFORM-042), never e.g. 640 x 0. */
 static void window_pixel_size(const PlatformWindow *window, uint32_t *out_width, uint32_t *out_height) {
-    if (window->minimized) {
-        *out_width = 0;
-        *out_height = 0;
-        return;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    if (!window->minimized) {
+        NSRect pixels;
+        @autoreleasepool {
+            pixels = [window->view convertRectToBacking:[window->view bounds]];
+        }
+        width = pixels.size.width > 0 ? (uint32_t)lround(pixels.size.width) : 0;
+        height = pixels.size.height > 0 ? (uint32_t)lround(pixels.size.height) : 0;
+        if (width == 0 || height == 0) {
+            width = 0;
+            height = 0;
+        }
     }
-    NSRect pixels;
-    @autoreleasepool {
-        pixels = [window->view convertRectToBacking:[window->view bounds]];
-    }
-    *out_width = pixels.size.width > 0 ? (uint32_t)lround(pixels.size.width) : 0;
-    *out_height = pixels.size.height > 0 ? (uint32_t)lround(pixels.size.height) : 0;
+    *out_width = width;
+    *out_height = height;
 }
 
 /* PLATFORM-042, PLATFORM-052: any change in the reported pixel size queues one
@@ -162,8 +168,10 @@ static void install_main_menu(void) {
     [app_menu addItemWithTitle:@"Quit" action:@selector(terminate:) keyEquivalent:@"q"];
     [app_item setSubmenu:app_menu];
 
-    NSMenuItem *window_item = [bar addItemWithTitle:@"" action:nil keyEquivalent:@""];
-    NSMenu *window_menu = [[[NSMenu alloc] init] autorelease];
+    /* Only the first (application) menu gets an automatic title; this one needs
+     * its own, or Close Window has no visible menu-bar entry. */
+    NSMenuItem *window_item = [bar addItemWithTitle:@"Window" action:nil keyEquivalent:@""];
+    NSMenu *window_menu = [[[NSMenu alloc] initWithTitle:@"Window"] autorelease];
     [window_menu addItemWithTitle:@"Close Window" action:@selector(performClose:) keyEquivalent:@"w"];
     [window_item setSubmenu:window_menu];
 
