@@ -10,8 +10,8 @@
 #include "src/core/engine.h"
 
 #if !defined(NAYLA_CORE_SRC_DIR) || !defined(NAYLA_RENDERER_SRC_DIR) || !defined(NAYLA_REPO_ROOT) || \
-    !defined(NAYLA_PLATFORM_SRC_DIR) || !defined(NAYLA_GPU_SRC_DIR)
-# error "NAYLA_*_DIR / NAYLA_REPO_ROOT must be defined by CMake (tests/architecture/CMakeLists.txt)"
+    !defined(NAYLA_PLATFORM_SRC_DIR) || !defined(NAYLA_GPU_SRC_DIR) || !defined(NAYLA_FORBIDDEN_INCLUDES)
+# error "NAYLA_*_DIR / NAYLA_REPO_ROOT / NAYLA_FORBIDDEN_INCLUDES must be defined by CMake (tests/architecture/CMakeLists.txt)"
 #endif
 
 #define Q(path) "'" path "'"
@@ -20,6 +20,15 @@
 #define BOTH CORE " " REND
 #define API_H Q(NAYLA_PLATFORM_SRC_DIR "/api.h")
 #define NATIVE_H Q(NAYLA_PLATFORM_SRC_DIR "/native.h")
+#define GPU_API_H Q(NAYLA_GPU_SRC_DIR "/api.h")
+#define PLAT_DIR Q(NAYLA_PLATFORM_SRC_DIR)
+
+/* The shared PLAT-INV-3(b) list, the same file cmake/Common.cmake reads.
+ * grep -i: the match is case-insensitive. */
+#define FORBIDDEN_LIST Q(NAYLA_FORBIDDEN_INCLUDES)
+#define NO_FORBIDDEN(where, paths) \
+    {"PLAT-INV-3(b): no forbidden includes in " where, \
+     "grep -rniE -f " FORBIDDEN_LIST " " paths}
 
 #define ALLOC_CALLS "\\b(malloc|calloc|realloc|aligned_alloc|free)\\s*\\("
 /* grep -v matches the file path prefix of each "path:line:text" hit. */
@@ -36,10 +45,13 @@ typedef struct {
 } Check;
 
 static const Check checks[] = {
-    {"Core has no OS headers",
-     "grep -rE '#include.*<(windows|unistd)\\.h>' " CORE},
-    {"Core has no GPU SDK headers",
-     "grep -rE '#include.*<(vulkan|d3d12|metal)' " CORE},
+    NO_FORBIDDEN("core and renderer", BOTH),
+    NO_FORBIDDEN("platform api.h", API_H),
+    NO_FORBIDDEN("platform native.h", NATIVE_H),
+    NO_FORBIDDEN("gpu api.h", GPU_API_H),
+    /* Vulkan/D3D12/Metal in either include or import form, any case. */
+    {"PLAT-INV-3(b): no GPU SDK headers in core or renderer",
+     "grep -rniE '#[[:space:]]*(include|import)[[:space:]]*<(vulkan|d3d12|metal)' " BOTH},
 
     {"ALLOC-INV-7: no direct allocation in core outside allocator.c",
      "grep -rE '" ALLOC_CALLS "' " CORE NOT_IN("allocator.c")},
@@ -126,6 +138,18 @@ static const Check checks[] = {
      "grep -E '^[A-Za-z_][A-Za-z0-9_ *]*[[:space:]*]platform_[a-z0-9_]+\\(' " API_H
      " | grep -vE 'platform_(time_now_ns|thread_current_id|log_time_source|log_thread_id_source)\\('"
      " | sed 's/^[^(]*(//' | grep -E -v 'Platform(Window)?[[:space:]]*\\*'"},
+
+    /* PLAT-INV-14: a file-scope variable is a column-0 declaration with no "("
+     * before the name, ending in ";" or ",", and a function-pointer variable is
+     * a column-0 "(*name". Both are scanned in .c and .m. The second grep drops
+     * const and typedef lines (static const is allowed) and bare struct/union/
+     * enum forward declarations. Heuristic: an indented or multi-line file-scope
+     * declaration is not seen. */
+    {"PLAT-INV-14: no file-scope non-const variable under src/platform (.c, .m)",
+     "grep -rnE --include='*.c' --include='*.m'"
+     " -e '^[A-Za-z_][A-Za-z0-9_ *]*[ *][*]?[A-Za-z_][A-Za-z0-9_]*[[:space:]]*(=[^;]*)?[;,]'"
+     " -e '^[^(#]*\\([[:space:]]*\\*[[:space:]]*[A-Za-z_]' " PLAT_DIR
+     " | grep -vE ':[0-9]+:.*\\b(const|typedef)\\b|:[0-9]+:(struct|union|enum)[[:space:]]+[A-Za-z_0-9]+[[:space:]]*;'"},
 };
 
 int main(void) {

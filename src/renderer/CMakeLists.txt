@@ -17,10 +17,7 @@ forbid_os_gpu_includes(engine_renderer ${CMAKE_CURRENT_SOURCE_DIR})
 forbid_direct_allocation(engine_renderer ${CMAKE_CURRENT_SOURCE_DIR})
 forbid_direct_output(engine_renderer ${CMAKE_CURRENT_SOURCE_DIR})
 
-# ALLOC-INV-11 as a real configure-time assertion, not just the comment above:
-# fails CMake configuration if engine_renderer ever links engine_core, even
-# transitively through another target's own link libraries.
-forbid_transitive_link(engine_renderer engine_core)
+# ALLOC-INV-11 and PLAT-INV-4 link checks: see the end of src/CMakeLists.txt.
 
 # Strict warnings
 target_compile_options(engine_renderer PRIVATE -Wall -Wextra -Wpedantic)
