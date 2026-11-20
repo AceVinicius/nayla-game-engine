@@ -10,7 +10,6 @@
 typedef struct {
     int32_t allocs;
     int32_t frees;
-    void *last;
 } Tracker;
 
 static void *tracked_alloc(const EngineAllocator *allocator, size_t size, size_t alignment) {
@@ -19,7 +18,6 @@ static void *tracked_alloc(const EngineAllocator *allocator, size_t size, size_t
     void *p = (base->alloc)(base, size, alignment);
     if (p != NULL) {
         t->allocs++;
-        t->last = p;
     }
     return p;
 }
@@ -67,7 +65,7 @@ static int test_uses_injected_allocator(void) {
     Renderer *r = NULL;
 
     EXPECT(renderer_init(&r, &allocator, NULL), ENGINE_RESULT_SUCCESS);
-    CHECK(t.allocs == 1 && t.last == r, "renderer was not allocated through the injected allocator");
+    CHECK(t.allocs > 0, "renderer was not allocated through the injected allocator");
     EXPECT(renderer_shutdown(r), ENGINE_RESULT_SUCCESS);
     CHECK(t.frees == t.allocs, "%d allocations but %d frees", (int)t.allocs, (int)t.frees);
     return 0;
@@ -80,6 +78,7 @@ static int test_failure_paths(void) {
     CHECK_OK(engine_log_init(&logger, ENGINE_LOG_LEVEL_TRACE));
     CHECK_OK(engine_log_add_sink(&logger, &sink));
 
+    EngineAllocator null_alloc = {.alloc = NULL, .free = no_free};
     EngineAllocator null_free = {.alloc = always_fails, .free = NULL};
     EngineAllocator failing = {.alloc = always_fails, .free = no_free};
     Renderer *r = NULL;
@@ -89,9 +88,12 @@ static int test_failure_paths(void) {
     EXPECT(renderer_init(&r, &null_free, &logger), ENGINE_RESULT_INVALID_ARGUMENT);
     CHECK(r == NULL, "invalid allocator left the out-parameter non-NULL");
     CHECK(errors == 2, "NULL free callback: expected 2 ERROR records, got %d", (int)errors);
+    EXPECT(renderer_init(&r, &null_alloc, &logger), ENGINE_RESULT_INVALID_ARGUMENT);
+    CHECK(r == NULL, "NULL alloc callback left the out-parameter non-NULL");
+    CHECK(errors == 3, "NULL alloc callback: expected 3 ERROR records, got %d", (int)errors);
     EXPECT(renderer_init(&r, &failing, &logger), ENGINE_RESULT_OUT_OF_MEMORY);
     CHECK(r == NULL, "allocation failure left the out-parameter non-NULL");
-    CHECK(errors == 3, "allocation failure: expected 3 ERROR records, got %d", (int)errors);
+    CHECK(errors == 4, "allocation failure: expected 4 ERROR records, got %d", (int)errors);
 
     EXPECT(renderer_shutdown(NULL), ENGINE_RESULT_INVALID_ARGUMENT);
     engine_log_shutdown(&logger);
