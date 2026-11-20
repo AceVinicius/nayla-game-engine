@@ -42,9 +42,11 @@
      "test ! -s " list " || { grep -E -f " list " /dev/null; test $? -eq 2; }"}
 /* PLAT-INV-14 patterns, shared by the row and its guard.
  * VAR: a column-0 declaration, with an optional array suffix, ending in ";" or ",".
- * FP: a column-0 function-pointer declarator "(*name". */
+ * FP: a column-0 function-pointer declarator "(*name"; the line must start
+ * with a type token, so a statement such as "(*cb)(x);" or an indented
+ * "return (*cb)(x);" inside a function body never matches. */
 #define PLAT14_VAR "^[A-Za-z_][A-Za-z0-9_ *]*[ *][*]?[A-Za-z_][A-Za-z0-9_]*(\\[[^]]*\\])*[[:space:]]*(=[^;]*)?[;,]"
-#define PLAT14_FP "^[^(#]*\\([[:space:]]*\\*[[:space:]]*[A-Za-z_]"
+#define PLAT14_FP "^[A-Za-z_][A-Za-z0-9_ *]*\\([[:space:]]*\\*[[:space:]]*(const[[:space:]]+)?[A-Za-z_]"
 
 #define ALLOC_CALLS "\\b(malloc|calloc|realloc|aligned_alloc|free)\\s*\\("
 /* grep -v matches the file path prefix of each "path:line:text" hit. */
@@ -157,21 +159,25 @@ static const Check checks[] = {
 
     /* PLAT-INV-14: a file-scope variable is a column-0 declaration with no "("
      * before the name, ending in ";" or ",", and a function-pointer variable is
-     * a column-0 "(*name". Both are scanned in .c and .m. The second grep drops
+     * a column-0 "(*name". .c, .m and .h are scanned: a backend-private header
+     * can carry state into every file that includes it. The second grep drops
      * const and typedef lines (static const is allowed) and bare struct/union/
      * enum forward declarations. Heuristic: an indented or multi-line file-scope
      * declaration is not seen. */
     {"guard: PLAT-INV-14 patterns compile",
      "grep -E -e '" PLAT14_VAR "' -e '" PLAT14_FP "' /dev/null; test $? -eq 2"},
-    /* The initializer is cut off first (sed), so "const" in a value cannot
-     * hide a mutable declarator. A declarator is const when it has no "*" and
-     * a "const", or when "*const" follows the last "*" (pointer itself const).
+    /* sed first removes what cannot qualify a declarator: string literals,
+     * {...} initializers, each "= value", and a function pointer's parameter
+     * list. What remains is checked as ONE declarator: a line still holding a
+     * "," declares several and is never exempt, so each declarator's constness
+     * counts on its own. A declarator is const when it has no "*" and a
+     * "const", or when "*const" follows its last "*" (the pointer itself);
      * "static const char *p" keeps its pointer mutable, so it is flagged. */
-    {"PLAT-INV-14: no file-scope non-const variable under src/platform (.c, .m)",
-     "grep -rnE --include='*.c' --include='*.m'"
+    {"PLAT-INV-14: no file-scope non-const variable under src/platform (.c, .m, .h)",
+     "grep -rnE --include='*.c' --include='*.m' --include='*.h'"
      " -e '" PLAT14_VAR "' -e '" PLAT14_FP "' " PLAT_DIR
-     " | sed -E 's/=.*$//'"
-     " | grep -vE ':[0-9]+:[^*]*\\bconst\\b[^*]*$|:[0-9]+:.*\\*[[:space:]]*const\\b[^*]*$"
+     " | sed -E 's/\"[^\"]*\"//g; s/[{][^{}]*[}]//g; s/=[^,;]*//g; s/[)][[:space:]]*[(][^()]*[)]/)/g'"
+     " | grep -vE ':[0-9]+:[^*,]*\\bconst\\b[^*,]*$|:[0-9]+:[^,]*\\*[[:space:]]*const\\b[^*,]*$"
      "|:[0-9]+:.*\\btypedef\\b|:[0-9]+:(struct|union|enum)[[:space:]]+[A-Za-z_0-9]+[[:space:]]*;'"},
 };
 
