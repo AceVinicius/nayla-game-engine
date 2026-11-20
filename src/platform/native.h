@@ -10,7 +10,7 @@
  *   WIN32           HINSTANCE          HWND                   0
  *   COCOA           NULL               content NSView *       0
  *   X11             Display *          NULL                   X11 Window (XID)
- *   WAYLAND         struct wl_display  struct wl_surface *    0
+ *   WAYLAND         struct wl_display *  struct wl_surface *    0
  */
 
 #include <stdint.h>
@@ -30,6 +30,9 @@ typedef enum PlatformNativeWindowType {
 
 /* PLAT-INV-1: fixed values (PLATFORM-071). */
 _Static_assert(PLATFORM_NATIVE_WINDOW_NONE == 0, "PLAT-INV-1: PLATFORM_NATIVE_WINDOW_NONE must be 0");
+_Static_assert(PLATFORM_NATIVE_WINDOW_WIN32 == 1, "PLAT-INV-1: PLATFORM_NATIVE_WINDOW_WIN32 must be 1");
+_Static_assert(PLATFORM_NATIVE_WINDOW_COCOA == 2, "PLAT-INV-1: PLATFORM_NATIVE_WINDOW_COCOA must be 2");
+_Static_assert(PLATFORM_NATIVE_WINDOW_X11 == 3, "PLAT-INV-1: PLATFORM_NATIVE_WINDOW_X11 must be 3");
 _Static_assert(PLATFORM_NATIVE_WINDOW_WAYLAND == 4, "PLAT-INV-1: PLATFORM_NATIVE_WINDOW_WAYLAND must be 4");
 
 typedef struct PlatformNativeWindow {

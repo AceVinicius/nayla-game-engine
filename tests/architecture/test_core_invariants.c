@@ -93,7 +93,7 @@ static const Check checks[] = {
     /* PLAT-INV-2: native handles stay in platform/GPU backends and tests/platform/.
      * This file names them to check for them, so it is excluded. */
     {"PLAT-INV-2: no native-handle names outside backends and tests/platform",
-     "grep -rE 'native\\.h|PlatformNative(Window|Object)|platform_window_get_native' "
+     "grep -rE 'platform/native\\.h|PlatformNative(Window|Object)|platform_window_get_native' "
      CORE " " REND " " API_H " " Q(NAYLA_GPU_SRC_DIR "/api.h") " " Q(NAYLA_REPO_ROOT "/tests")
      " | grep -v '/tests/platform/' | grep -v '/test_core_invariants.c:'"},
 
@@ -122,7 +122,7 @@ static const Check checks[] = {
      * column-0 lines are declarations; a multi-line declaration keeps its first
      * parameter, the Platform pointer, on its first line. */
     {"PLAT-INV-5: only the four stateless functions lack a Platform pointer",
-     "grep -E '^[A-Za-z_][A-Za-z0-9_ ]*[[:space:]]platform_[a-z_]+\\(' " API_H
+     "grep -E '^[A-Za-z_][A-Za-z0-9_ ]*[[:space:]]platform_[a-z0-9_]+\\(' " API_H
      " | grep -vE 'Platform(Window)?[[:space:]]*\\*'"
      " | grep -vE 'platform_(time_now_ns|thread_current_id|log_time_source|log_thread_id_source)\\('"},
 };
