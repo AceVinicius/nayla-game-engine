@@ -1,0 +1,13 @@
+# Platform header checks: each public platform header compiles on its own,
+# as C17 and as C23 (PLATFORM-094). tests/platform/ is the only test directory
+# allowed to include native.h (PLAT-INV-2), which is why these live here.
+foreach(_std IN ITEMS 17 23)
+  foreach(_hdr IN ITEMS api native)
+    set(_name test_platform_header_${_hdr}_c${_std})
+    add_executable(${_name} header_${_hdr}.c)
+    set_target_properties(${_name} PROPERTIES C_STANDARD ${_std} C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
+    target_link_libraries(${_name} PRIVATE engine_platform_api)
+    target_compile_options(${_name} PRIVATE -Wall -Wextra -Wpedantic -pedantic-errors)
+    add_test(NAME architecture/platform_header_${_hdr}_c${_std} COMMAND ${_name})
+  endforeach()
+endforeach()

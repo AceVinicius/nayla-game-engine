@@ -1,6 +1,14 @@
 #ifndef PLATFORM_API_H
 #define PLATFORM_API_H
 
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include "src/core/result.h"
+#include "src/core/allocator.h"
+#include "src/core/logging.h"
+
 /* Abstract Platform API. To be implemented by OS backends (Windows/Mac/Linux).
  * This is the contract between core/renderer and OS-specific code.
  * No OS headers should be included here.
@@ -68,6 +76,74 @@
  * This block records a decision only: it declares no types and no functions.
  * ------------------------------------------------------------------------- */
 
-/* Placeholder: API contract to be defined. */
+/* ---- Time and thread identity (PLATFORM-020..025) -------------------------
+ * Stateless: no Platform parameter, callable from any thread at any time. */
+
+uint64_t platform_time_now_ns(void);
+uint64_t platform_thread_current_id(void);
+
+/* Logger adapters with the exact EngineLogTimeFn / EngineLogThreadIdFn
+ * signatures. user_data is ignored (PLATFORM-025). */
+uint64_t platform_log_time_source(void *user_data);
+uint64_t platform_log_thread_id_source(void *user_data);
+
+/* ---- Lifecycle (PLATFORM-030..037) ----------------------------------------
+ * A NULL allocator selects engine_default_allocator() (PLATFORM-031); a NULL
+ * logger discards diagnostics (PLATFORM-032). At most one live Platform per
+ * process (PLATFORM-036). */
+
+typedef struct Platform Platform;   /* opaque; defined in the selected backend */
+
+ENGINE_NODISCARD EngineResult platform_init(Platform              **out_platform,
+                                            const EngineAllocator  *allocator,
+                                            const EngineLogger     *logger);
+void platform_shutdown(Platform *platform);
+
+/* ---- Windows (PLATFORM-040..044) ------------------------------------------ */
+
+typedef struct PlatformWindow PlatformWindow;   /* opaque */
+
+#define PLATFORM_WINDOW_RESIZABLE ((uint32_t)0x00000001u)
+
+typedef struct PlatformWindowDesc {
+    const char *title;    /* non-NULL, NUL-terminated UTF-8; not retained */
+    uint32_t    width;    /* requested client-area size, logical units, > 0 */
+    uint32_t    height;
+    uint32_t    flags;    /* PLATFORM_WINDOW_* bits */
+} PlatformWindowDesc;
+
+ENGINE_NODISCARD EngineResult platform_window_create(PlatformWindow          **out_window,
+                                                     Platform                 *platform,
+                                                     const EngineAllocator    *allocator,
+                                                     const PlatformWindowDesc *desc);
+void platform_window_destroy(PlatformWindow *window);
+bool platform_window_should_close(const PlatformWindow *window);
+ENGINE_NODISCARD EngineResult platform_window_get_framebuffer_size(const PlatformWindow *window,
+                                                                   uint32_t *out_width,
+                                                                   uint32_t *out_height);
+
+/* ---- Events (PLATFORM-050..054) -------------------------------------------
+ * Pump, then drain. Window state is authoritative; events only notify. */
+
+typedef enum PlatformEventType {
+    PLATFORM_EVENT_NONE = 0,
+    PLATFORM_EVENT_WINDOW_CLOSE_REQUESTED,      /* 1 */
+    PLATFORM_EVENT_WINDOW_FRAMEBUFFER_RESIZED   /* 2 -- width/height are the new pixel size */
+} PlatformEventType;
+
+/* PLAT-INV-1: fixed values (PLATFORM-054). */
+_Static_assert(PLATFORM_EVENT_NONE == 0, "PLAT-INV-1: PLATFORM_EVENT_NONE must be 0");
+_Static_assert(PLATFORM_EVENT_WINDOW_CLOSE_REQUESTED == 1, "PLAT-INV-1: WINDOW_CLOSE_REQUESTED must be 1");
+_Static_assert(PLATFORM_EVENT_WINDOW_FRAMEBUFFER_RESIZED == 2, "PLAT-INV-1: WINDOW_FRAMEBUFFER_RESIZED must be 2");
+
+typedef struct PlatformEvent {
+    int32_t         type;     /* a PlatformEventType (CORE-TYPES-025) */
+    PlatformWindow *window;   /* borrowed; live whenever the event is returned */
+    uint32_t        width;    /* FRAMEBUFFER_RESIZED only; 0 otherwise */
+    uint32_t        height;
+} PlatformEvent;
+
+void platform_pump_events(Platform *platform);
+bool platform_next_event(Platform *platform, PlatformEvent *out_event);
 
 #endif /* PLATFORM_API_H */
