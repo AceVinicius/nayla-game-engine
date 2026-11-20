@@ -4,11 +4,11 @@
 **Date:** 2026-11-20
 **Author:** `spec-writer`
 **Scope:** the Platform API contract for the first milestone (specs.md §47/§48): platform lifecycle, windows, events, monotonic time, thread identity, and the native-handle boundary to the future GPU surface. Binding on `src/platform/api.h`, `src/platform/native.h`, and every OS backend.
-**Supersedes:** specs.md §13 ("Platform Abstraction"), §14 ("Platform Interface"), §15 ("Platform Services"), §16 ("Platform Backend Contract"), §17 ("Native Handle Boundary"), and the `platform_initialize`/`platform_shutdown` names in §37. specs.md remains a historical draft; where it disagrees with this document, **this document wins**.
+**Supersedes:** specs.md §13 ("Platform Abstraction"), §14 ("Platform Interface"), §15 ("Platform Services"), §16 ("Platform Backend Contract"), §17 ("Native Handle Boundary"), and the `platform_initialize`/`platform_shutdown` names in §37. specs.md remains a historical draft; where it disagrees with this document, **this document wins**. **Amends** `logging.md` CORE-LOG-082 (installing the context sources after platform initialization is no longer required, and records before that point need not carry the "unknown" sentinels, PLATFORM-026/083) and its edge case 12; both carry a note pointing here. **Widens** `result.md` §4's meaning of `ENGINE_RESULT_NOT_SUPPORTED` to OS-call failures (PLATFORM-034, issue #18); result.md carries a note.
 **Depends on:** `types.md` (CORE-TYPES-011/012 no `bool` in cross-backend structs, flags are `uint32_t`; CORE-TYPES-013/014 no pointer-through-integer; CORE-TYPES-016 `void *` limits; CORE-TYPES-018 `uint64_t` timestamps; CORE-TYPES-021..025 naming and enum width). `result.md` (CORE-RESULT-005/008 closed code set, -012 precedence, -013 out-parameters, -015 `ENGINE_NODISCARD`, -017 infallible returns `void`). `allocator.md` (CORE-ALLOC-021 thread-safety vocabulary, -060..070 borrow-and-store, -080..083 targets). `logging.md` (CORE-LOG-003/004/005 borrowed logger and `NULL` discards, CORE-LOG-040..043 context sources, CORE-LOG-082 lifecycle, CORE-LOG-084 construction parameters).
-**Related:** CLAUDE.md invariants #1–#6; `rules/platform.md`; `rules/core.md` ("Keep it simple"); ADR-009; the normative allocator block in `src/platform/api.h` (TASK-007), which this spec incorporates unchanged.
+**Related:** CLAUDE.md invariants #1–#6; `rules/platform.md`; `rules/core.md` ("Keep it simple"); ADR-009; ADR-010 (OS headers in GPU surface files); the normative allocator block in `src/platform/api.h` (TASK-007), which this spec incorporates unchanged.
 
-> **Numbering.** specs.md §67 uses `PLATFORM-001..008` as *task* identifiers, and logging.md cites them that way (PLATFORM-005 = time, PLATFORM-008 = threads). Rule identifiers in this spec start at `PLATFORM-010` so a rule ID never collides with a task ID.
+> **Numbering.** specs.md §67 uses `PLATFORM-001..008` as *task* identifiers, and logging.md cites them that way (PLATFORM-005 = time, PLATFORM-008 = threads). Rule identifiers in this spec start at `PLATFORM-010` so a rule ID never collides with a task ID. Rules are grouped by decade per section; `PLATFORM-06x` is unused.
 
 ---
 
@@ -66,7 +66,7 @@ uint64_t platform_thread_current_id(void);
 
 **PLATFORM-021 (resolution and suspend).** Resolution SHOULD be 1 µs or finer and is not exposed. Whether the clock advances during system suspend is **unspecified**. Consumers MUST NOT depend on it either way, and a frame-delta consumer MUST tolerate an arbitrarily large step between two frames.
 
-**PLATFORM-022 (overflow-safe conversion).** A backend converting a tick counter `c` at frequency `f` MUST compute `(c / f) * 1000000000 + ((c % f) * 1000000000) / f`, or an equivalent that cannot overflow. The naive `c * 1000000000 / f` overflows `uint64_t` after about 30 minutes at 10 MHz.
+**PLATFORM-022 (overflow-safe conversion).** A backend converting a tick counter `c` at frequency `f` MUST compute `(c / f) * 1000000000 + ((c % f) * 1000000000) / f`, or an equivalent that cannot overflow. That formula is itself safe only while `f < 2^64 / 10^9` (about 1.8 × 10^10 Hz), which every real counter satisfies (QPC is typically 10 MHz). The naive `c * 1000000000 / f` overflows `uint64_t` after about 30 minutes at 10 MHz.
 
 **PLATFORM-023 (thread identity).** `platform_thread_current_id` returns a value that is stable for the life of the calling thread, distinct between concurrently live threads, and never `0` (= `ENGINE_LOG_THREAD_UNKNOWN`). A value MAY be reused after its thread exits. It is an opaque identifier. No arithmetic, ordering, or OS meaning may be inferred from it. It is `uint64_t` directly. A `PlatformThreadId` typedef would add a name with no semantics.
 
@@ -105,11 +105,11 @@ ENGINE_NODISCARD EngineResult platform_init(Platform              **out_platform
 void platform_shutdown(Platform *platform);
 ```
 
-**PLATFORM-030 (signature shape).** The out-parameter comes first, then allocator, then logger, matching `engine_init` and `renderer_init`. The names are `platform_init`/`platform_shutdown` to match those, replacing specs.md's `platform_initialize`.
+**PLATFORM-030 (signature shape).** Constructors (`platform_init`, `platform_window_create`) take the out-parameter first, matching `engine_init` and `renderer_init`. Queries take the object first and out-parameters last. The names are `platform_init`/`platform_shutdown` to match those, replacing specs.md's `platform_initialize`.
 
 **PLATFORM-031 (allocator: `NULL` selects the default).** Every Platform API function that creates an engine-owned object (`platform_init`, `platform_window_create`) takes `const EngineAllocator *allocator`. `NULL` is resolved **once**, at that call, to `engine_default_allocator()` and the resolved pointer is stored (CORE-ALLOC-068). After resolution, `alloc`/`free` are verified non-`NULL` or the call returns `ENGINE_RESULT_INVALID_ARGUMENT` (CORE-ALLOC-070). Every allocation and release the object performs goes through its stored pointer (CORE-ALLOC-067). The `src/platform/api.h` block governs OS-owned memory: OS handles are released by their OS calls first, then the struct is released through the stored allocator.
 
-**PLATFORM-032 (logger: `NULL` discards).** `platform_init` takes `const EngineLogger *logger`, stores it unchanged, and **never** resolves `NULL` to anything. `NULL` means the platform's diagnostics are discarded (CORE-LOG-005). This is the opposite of PLATFORM-031 on purpose: a program cannot run without an allocator, but it runs fine without a logger. The logger is per-subsystem (CORE-LOG-084): windows log through their `Platform`'s stored logger and take no logger parameter. The allocator is per-object (`api.h` block), so windows take one.
+**PLATFORM-032 (logger: `NULL` discards).** `platform_init` takes `const EngineLogger *logger`, stores it unchanged, and **never** resolves `NULL` to anything. `NULL` means the platform's diagnostics are discarded (CORE-LOG-005). This is the opposite of PLATFORM-031 on purpose: a program cannot run without an allocator, but it runs fine without a logger. The logger is per-subsystem (this spec's choice, consistent with CORE-LOG-003): windows log through their `Platform`'s stored logger and take no logger parameter. The allocator is per-object (`api.h` block), so windows take one.
 
 **PLATFORM-033 (`platform_init` results).** In CORE-RESULT-012 precedence order:
 - `ENGINE_RESULT_INVALID_ARGUMENT`: `out_platform == NULL`, or the resolved allocator has a `NULL` callback;
@@ -117,13 +117,13 @@ void platform_shutdown(Platform *platform);
 - `ENGINE_RESULT_OUT_OF_MEMORY`: an `EngineAllocator` allocation returned `NULL` (CORE-RESULT-019);
 - `ENGINE_RESULT_SUCCESS`: `*out_platform` is a valid `Platform`.
 
-On any failure, `*out_platform` is `NULL` (when `out_platform` is non-`NULL`) and everything acquired has been released (CORE-RESULT-013).
+This order fixes the backend's sequence: validate arguments, then probe the window system without allocating, then allocate. A system with no reachable window system therefore returns `NOT_SUPPORTED` even with an always-`NULL` allocator. On any failure, `*out_platform` is `NULL` (when `out_platform` is non-`NULL`) and everything acquired has been released (CORE-RESULT-013).
 
-**PLATFORM-034 (OS failures map to `NOT_SUPPORTED`, logged at the failure point).** An OS call that fails for any reason other than an `EngineAllocator` returning `NULL` is reported as `ENGINE_RESULT_NOT_SUPPORTED`. The backend logs at `ERROR` with the OS's own error detail (`GetLastError`, `errno`, an `NSError` description) converted to text. That error detail never crosses the boundary as a value (CORE-RESULT-005/006). *Rationale:* result.md deferred a `_PLATFORM` code until a caller needs to act differently on it (CORE-RESULT-008). In this milestone every caller does the same thing on both conditions: log and exit. When a caller first needs to tell "windowing unavailable" from "the OS refused", that caller is the named call site for the amendment.
+**PLATFORM-034 (OS failures map to `NOT_SUPPORTED`, logged at the failure point).** An OS call that fails for any reason other than an `EngineAllocator` returning `NULL` is reported as `ENGINE_RESULT_NOT_SUPPORTED`. The backend logs at `ERROR` with the OS's own error detail (`GetLastError`, `errno`, an `NSError` description) converted to text. That error detail never crosses the boundary as a value (CORE-RESULT-005/006). This **widens** result.md §4's meaning ("capability unavailable, not a bug"): here `NOT_SUPPORTED` also covers an OS refusal that may be an environment or backend fault. *Rationale:* result.md deferred a `_PLATFORM` code until a caller needs to act differently on it (CORE-RESULT-008). In this milestone every production caller does the same thing on both conditions: log and exit. The conformance suite must tell them apart and does so by environment declaration (PLATFORM-101), not by result code. Decision and revisit trigger: §11 item 3, issue #18.
 
-**PLATFORM-035 (`platform_shutdown`).** `platform_shutdown` returns `void` (CORE-RESULT-017) and is a no-op for `NULL`. Its precondition is that every `PlatformWindow` created from this `Platform` has been destroyed. If windows are still live, the backend logs at `ERROR` and returns without releasing anything, so it leaks rather than invalidating pointers the caller still holds (the CORE-ALLOC-092 trade). It never touches the allocator or logger objects (CORE-ALLOC-062, CORE-LOG-002).
+**PLATFORM-035 (`platform_shutdown`).** `platform_shutdown` returns `void` (CORE-RESULT-017) and is a no-op for `NULL`. Its precondition is that every `PlatformWindow` created from this `Platform` has been destroyed. If windows are still live, the backend logs at `ERROR` and returns without releasing anything, so it leaks rather than invalidating pointers the caller still holds (the CORE-ALLOC-092 trade). It logs through the stored logger but never reconfigures or disposes of the allocator or logger (CORE-ALLOC-062, CORE-LOG-002).
 
-**PLATFORM-036 (one live `Platform` per process).** Window-system state is process-global in the OS (the `NSApplication` singleton, Win32 window-class registration, the display connection). At most one `Platform` may be live at a time. Violating this is a caller error and the behaviour is **undefined**. Backends MUST NOT add a process-global flag to detect it (PLATFORM-090).
+**PLATFORM-036 (one live `Platform` per process).** Window-system state is process-global in the OS (the `NSApplication` singleton, Win32 window-class registration, the display connection). At most one `Platform` may be live at a time. Violating this is a caller error and the behaviour is **undefined**. Backends MUST NOT add a process-global flag to detect it (PLATFORM-090). Sequential re-initialization (`platform_init` after `platform_shutdown` in one process) is supported: backends tolerate once-per-process OS setup that persists (the `NSApp` singleton, Win32 DPI awareness, an already-registered window class).
 
 **PLATFORM-037 (lifetimes).** The allocator and logger passed to `platform_init` MUST outlive the `Platform` (CORE-ALLOC-065, CORE-LOG-004). The allocator passed to `platform_window_create` MUST outlive that window.
 
@@ -143,10 +143,10 @@ typedef struct PlatformWindowDesc {
     uint32_t    flags;    /* PLATFORM_WINDOW_* bits */
 } PlatformWindowDesc;
 
-ENGINE_NODISCARD EngineResult platform_window_create(Platform                 *platform,
+ENGINE_NODISCARD EngineResult platform_window_create(PlatformWindow          **out_window,
+                                                     Platform                 *platform,
                                                      const EngineAllocator    *allocator,
-                                                     const PlatformWindowDesc *desc,
-                                                     PlatformWindow          **out_window);
+                                                     const PlatformWindowDesc *desc);
 void platform_window_destroy(PlatformWindow *window);
 bool platform_window_should_close(const PlatformWindow *window);
 ENGINE_NODISCARD EngineResult platform_window_get_framebuffer_size(const PlatformWindow *window,
@@ -156,11 +156,11 @@ ENGINE_NODISCARD EngineResult platform_window_get_framebuffer_size(const Platfor
 
 **PLATFORM-040 (desc layout).** `PlatformWindowDesc` crosses into a backend, so it has no `bool` field (CORE-TYPES-011) and options are `uint32_t` flag bits (CORE-TYPES-012). specs.md's `bool resizable` becomes `PLATFORM_WINDOW_RESIZABLE`. specs.md's `fullscreen` is dropped for this milestone: the slice does not need it, and display-mode switching is a separate contract. Fields are appended, never reordered.
 
-**PLATFORM-041 (`platform_window_create` results).** In precedence order: `INVALID_ARGUMENT` for a `NULL` `platform`, `desc`, `desc->title`, or `out_window`, a zero `width` or `height`, any unknown `flags` bit, or a resolved allocator with a `NULL` callback. Then `NOT_SUPPORTED` for any OS failure (PLATFORM-034). Then `OUT_OF_MEMORY`. Failure leaves `*out_window == NULL` and the `Platform` unchanged. On success the window is visible, and `desc` and `desc->title` may be released immediately: the backend copies or consumes the title during the call. Invalid UTF-8 in `title` is a caller error that MUST NOT crash. The backend MAY substitute U+FFFD, and the call does not fail because of it.
+**PLATFORM-041 (`platform_window_create` results).** In precedence order: `INVALID_ARGUMENT` for a `NULL` `platform`, `desc`, `desc->title`, or `out_window`, a zero `width` or `height`, any unknown `flags` bit, or a resolved allocator with a `NULL` callback. Then `NOT_SUPPORTED` for any OS failure (PLATFORM-034). Then `OUT_OF_MEMORY`. Failure leaves `*out_window == NULL` and the `Platform` unchanged. On success the window is visible, and `desc` and `desc->title` may be released immediately: the backend copies or consumes the title during the call. Creation queues **no** event: OS notifications delivered during creation (Win32 `WM_SIZE` on create/show) are absorbed, and the initial size is read with the query. Invalid UTF-8 in `title` is a caller error that MUST NOT crash. The backend MAY substitute U+FFFD, and the call does not fail because of it.
 
-**PLATFORM-042 (sizes are requests; the framebuffer is authoritative).** `width`/`height` request a client-area size in the OS's logical (DPI-independent) units. The OS may clamp or scale them. The GPU surface size is `platform_window_get_framebuffer_size`, which is **always physical pixels**. How a backend obtains DPI-correct pixels (macOS backing scale, Windows DPI awareness) is backend-internal. The query returns `INVALID_ARGUMENT` for any `NULL` pointer, writing nothing, and `SUCCESS` otherwise. A minimized or zero-area window reports `0 × 0`, which is a valid result and not an error (§13 edge case 3).
+**PLATFORM-042 (sizes are requests; the framebuffer is authoritative).** `width`/`height` request a client-area size in the OS's logical (DPI-independent) units. The OS may clamp or scale them. The GPU surface size is `platform_window_get_framebuffer_size`, which is **always physical pixels**. How a backend obtains DPI-correct pixels (macOS backing scale, Windows DPI awareness) is backend-internal. The query returns `INVALID_ARGUMENT` for any `NULL` pointer, writing nothing, and `SUCCESS` otherwise. A minimized or zero-area window MUST report `0 × 0` on every backend, which is a valid result and not an error (§13 edge case 3); where the OS keeps the view's bounds (macOS), the backend tracks miniaturize/deminiaturize itself. Every change in the value this query reports (an OS resize, a DPI or backing-scale change that alters the pixel size, minimize, restore) queues `FRAMEBUFFER_RESIZED` with the new value (PLATFORM-052).
 
-**PLATFORM-043 (the close button never destroys).** When the user or OS asks to close a window (the close button, Alt+F4, the Cmd+W/Quit menu, a window-manager close), the backend MUST NOT destroy it. It sets the window's sticky close flag and queues `PLATFORM_EVENT_WINDOW_CLOSE_REQUESTED` (§6). Only `platform_window_destroy` destroys a window. The application decides whether to honour the request. `platform_window_should_close` returns the sticky flag, which is never cleared, and returns `false` for `NULL`.
+**PLATFORM-043 (the close button never destroys).** When the user or OS asks to close a window (the close button, Alt+F4, Cmd+W, a window-manager close), the backend MUST NOT destroy it. It sets the window's sticky close flag and, the first time the flag is set, queues `PLATFORM_EVENT_WINDOW_CLOSE_REQUESTED` (§6). An application-level quit (Cmd+Q, the Quit menu) does this for every live window. Only `platform_window_destroy` destroys a window. The application decides whether to honour the request, but cannot cancel it: `platform_window_should_close` returns the sticky flag, which is never cleared (a confirm-on-close flow needs an amendment), and returns `false` for `NULL`.
 
 **PLATFORM-044 (`platform_window_destroy`).** Returns `void` and is a no-op for `NULL`. It releases OS resources first, then the struct through the window's stored allocator (`api.h` block). It purges every queued event that refers to this window (PLATFORM-053). Precondition: no GPU surface built from this window is still live (PLATFORM-073).
 
@@ -182,8 +182,6 @@ typedef struct PlatformEvent {
     uint32_t        height;
 } PlatformEvent;
 
-#define PLATFORM_EVENT_QUEUE_CAPACITY ((size_t)64)
-
 void platform_pump_events(Platform *platform);
 bool platform_next_event(Platform *platform, PlatformEvent *out_event);
 ```
@@ -204,7 +202,7 @@ for (;;) {
 
 **PLATFORM-051 (drain).** `platform_next_event` copies the oldest queued event into `*out_event`, removes it, and returns `true`. When the queue is empty, or either argument is `NULL`, it returns `false` and writes nothing. It never pumps. Events are delivered in the order the OS produced them, subject to PLATFORM-052.
 
-**PLATFORM-052 (coalescing bounds the queue).** The queue is a fixed array of `PLATFORM_EVENT_QUEUE_CAPACITY` entries, allocated at `platform_init`. Pumping allocates nothing. At most one `FRAMEBUFFER_RESIZED` and one `CLOSE_REQUESTED` per window are queued at a time. A newer resize updates the queued entry's size in place, and a repeat close request is dropped. If the queue is still full, the new event is dropped and the backend logs at `WARN`. This loses nothing permanently, because **window state is authoritative and events are only notifications**: `platform_window_should_close` and `platform_window_get_framebuffer_size` always report the current truth.
+**PLATFORM-052 (coalescing bounds the queue).** The queue is a fixed array allocated at `platform_init`; its capacity is backend-private. Pumping allocates nothing. At most one `FRAMEBUFFER_RESIZED` per window is queued at a time: a newer resize updates the queued entry's size in place. `CLOSE_REQUESTED` is queued at most once per window lifetime, when the close flag is first set (PLATFORM-043); later close requests queue nothing. If the queue is full, the new event is dropped and the backend logs at `WARN`. This loses nothing permanently, because **window state is authoritative and events are only notifications**: `platform_window_should_close` and `platform_window_get_framebuffer_size` always report the current truth.
 
 **PLATFORM-053 (window pointer validity).** `event.window` is borrowed. Because destroying a window purges its events (PLATFORM-044), every event `platform_next_event` returns refers to a live window.
 
@@ -216,12 +214,12 @@ for (;;) {
 
 ### 7.1 Who sees native handles
 
-Only **platform backends** (which produce them) and **GPU backends** (which create a surface from them) see native handles. The renderer, core, and the GPU API header never do. The GPU API's future surface-creation entry point takes the opaque `PlatformWindow *`, and the GPU *backend* extracts native handles internally. specs.md §17's alternative, where the renderer fetches a `NativeWindowHandle` and passes it to the GPU API, is rejected: it would put a native-handle type in renderer code, which `rules/renderer.md` forbids ("no backend-native types").
+Only **platform backends** (which produce them), **GPU backends** (which create a surface from them; OS types only in their surface files, ADR-010), and the platform conformance tests under `tests/platform/` (read-only, PLATFORM-100) see native handles. The renderer, core, `api.h`, the GPU API header, and every other test never do. The GPU API's future surface-creation entry point takes the opaque `PlatformWindow *`, and the GPU *backend* extracts native handles internally. specs.md §17's alternative, where the renderer fetches a `NativeWindowHandle` and passes it to the GPU API, is rejected: it would put a native-handle type in renderer code, which `rules/renderer.md` forbids ("no backend-native types").
 
 ### 7.2 Shape
 
 ```c
-/* src/platform/native.h — included ONLY by platform backends and GPU backends */
+/* src/platform/native.h — included ONLY by platform backends, GPU backends, and tests/platform/ */
 typedef struct PlatformNativeObject PlatformNativeObject;   /* never defined anywhere */
 
 typedef enum PlatformNativeWindowType {
@@ -254,7 +252,7 @@ ENGINE_NODISCARD EngineResult platform_window_get_native(const PlatformWindow *w
 
 **PLATFORM-071 (the table is the contract).** Each `type` populates exactly the fields in the table, and the others are `NULL`/`0`. `WIN32` and `COCOA` are the only types produced in this milestone. `X11` and `WAYLAND` are reserved now so that GPU backends can be written against a fixed shape. **Which of them a Linux backend produces is the open ADR in §11.** A GPU backend that receives a `type` it does not implement returns `ENGINE_RESULT_NOT_SUPPORTED` (CLAUDE.md invariant #6).
 
-**PLATFORM-072 (ownership and permitted use).** The platform owns every native object. A GPU backend MUST NOT destroy, release, retain beyond the window's life, re-parent, subclass, or replace the window procedure or delegate of any of them. Exactly one mutation is sanctioned: on `COCOA`, the GPU backend MAY install a `CAMetalLayer` as the view's layer (`wantsLayer`/`layer`). This keeps QuartzCore/Metal headers out of the platform backend (`rules/gpu.md`: SDK headers stay inside GPU backends), and it serves both the Metal backend and Vulkan-over-MoltenVK (`VK_EXT_metal_surface`).
+**PLATFORM-072 (ownership and permitted use).** The platform owns every native object. A GPU backend MUST NOT destroy, release, retain beyond the window's life, re-parent, subclass, or replace the window procedure or delegate of any of them. Exactly one mutation is sanctioned: on `COCOA`, the GPU backend MAY install a `CAMetalLayer` as the view's layer (`wantsLayer`/`layer`). This keeps QuartzCore/Metal headers out of the platform backend (`rules/gpu.md`: "SDK headers stay inside backends", meaning GPU backends), and it serves both the Metal backend and Vulkan-over-MoltenVK (`VK_EXT_metal_surface`).
 
 **PLATFORM-073 (validity and lifetime).** `platform_window_get_native` returns the same values on every call for the life of the window. It returns `INVALID_ARGUMENT` for a `NULL` argument and `SUCCESS` otherwise. The values are valid until `platform_window_destroy` begins. Every GPU surface built from a window MUST be destroyed before that window. This is the window-level form of specs.md §37's `gpu_shutdown → platform_shutdown` order.
 
@@ -300,67 +298,66 @@ The application owns and sequences `Platform`, just as it owns the logger. Wheth
 | Target | Contents | Links |
 |---|---|---|
 | `engine_platform_api` (INTERFACE, exists) | `src/platform/api.h`, `src/platform/native.h` | `engine_foundation` |
-| `engine_platform_win32` / `engine_platform_macos` / `engine_platform_linux` (STATIC) | `src/platform/<os>/` | `engine_platform_api` |
+| `engine_platform_win32` / `engine_platform_macos` / `engine_platform_linux` (STATIC) | `src/platform/win32/`, `src/platform/macos/`, `src/platform/linux/` (these names replace specs.md's `windows/`) | `engine_platform_api`, and `engine_foundation` directly and PUBLIC (CORE-ALLOC-082) |
 | `engine_platform` (ALIAS) | the backend selected by the cache variable `NAYLA_PLATFORM_BACKEND`, which defaults to the host OS | — |
 
+Until the §11 Linux ADR lands, `engine_platform_linux` implements only time and thread identity (§3). Its `platform_init` logs at `ERROR` and returns `ENGINE_RESULT_NOT_SUPPORTED` after argument validation; every other entry point is defined and follows its `NULL`-argument rule. This keeps the default Linux configure and link working.
+
 **PLATFORM-093 (who may link what).** Dependencies flow downward only (specs.md §4.1):
-- the application executable links `engine_platform`, and it is the only target that links a backend;
-- `engine_core` MAY link `engine_platform_api` and MUST NOT link a backend;
-- `engine_renderer` MUST NOT link `engine_platform_api` or any backend, even transitively;
-- GPU backends MAY link `engine_platform_api` (for `native.h`) and MUST NOT link a platform backend. `engine_gpu_api` MAY forward-declare `PlatformWindow` and MUST NOT include `native.h`.
+- only executables link `engine_platform`: the application and the platform conformance tests (PLATFORM-100). No library target links `engine_platform` or a backend;
+- `engine_core` MAY link `engine_platform_api` and MUST NOT link `engine_platform` or a backend;
+- `engine_renderer` MUST NOT link `engine_platform_api`, `engine_platform`, or any backend, even transitively;
+- GPU backend libraries declare a dependency on `engine_platform_api` only (for `native.h`) and MUST NOT link `engine_platform` or a backend. Their reference to `platform_window_get_native` stays unresolved in the library and is resolved by the final executable's link, which links both. That executable lists the GPU backend before `engine_platform` in `target_link_libraries`, so single-pass linkers (GNU ld) resolve it. `engine_gpu_api` MAY forward-declare `PlatformWindow` and MUST NOT include `native.h`.
 
-**PLATFORM-094 (header discipline).** `api.h` includes exactly `<stdbool.h>`, `<stddef.h>`, `<stdint.h>`, `src/core/result.h`, `src/core/allocator.h`, and `src/core/logging.h`. `native.h` includes `api.h` and `<stdint.h>`. Neither names an OS or SDK type: native types appear only as comments in the table. OS headers appear only under `src/platform/<os>/`. Backends are subject to `forbid_direct_allocation` and `forbid_direct_output` with no exemption, and they never include a GPU SDK header.
-
-**PLATFORM-095 (macOS language is a backend detail).** The contract is C. Whether `src/platform/macos/` uses Objective-C translation units or C with the Objective-C runtime is decided by ADR when that backend is written (§11). Either way, nothing Objective-C appears in `api.h` or `native.h`.
+**PLATFORM-094 (header discipline).** `api.h` includes exactly `<stdbool.h>`, `<stddef.h>`, `<stdint.h>`, `src/core/result.h`, `src/core/allocator.h`, and `src/core/logging.h`. `native.h` includes `api.h` and `<stdint.h>`. Neither names an OS or SDK type: native types appear only as comments in the table. OS headers are included directly only under `src/platform/<os>/` and in a GPU backend's surface files, `src/gpu/<backend>/surface_<type>.c` or `.m` with `<type>` one of `win32`, `cocoa`, `x11`, `wayland` (ADR-010). They are never included by `src/core/`, `src/renderer/`, `api.h`, `native.h`, or `src/gpu/api.h`. Backends are subject to `forbid_direct_allocation` and `forbid_direct_output` with no exemption, and platform backends never include a GPU SDK header.
 
 ---
 
 ## 10. Conformance
 
-**PLATFORM-100 (one suite, every backend).** A backend conforms when `tests/platform/test_platform_conformance.c` passes on its target OS. The suite is written only against `api.h`/`native.h`, linked against `engine_platform`, and built unchanged for every backend. It covers every invariant tagged *(conformance)* in §12. It injects a leak-tracking allocator (ALLOC-INV-12 pattern) and a capture-sink logger.
+**PLATFORM-100 (one suite, every backend).** A backend conforms when two CTest tests pass on its target OS: `contract/platform_stateless` (`tests/platform/test_platform_stateless.c`, the invariants tagged *(stateless)* in §12) and `contract/platform_window` (`tests/platform/test_platform_window.c`, those tagged *(window)*). The `contract/` name prefix makes `tools/factory test contract` run them. Both use `tests/check.h`, are written only against `api.h`/`native.h`, link `engine_platform`, and are built unchanged for every backend. They inject a leak-tracking allocator (ALLOC-INV-12 pattern) and a capture-sink logger. `tests/platform/` is the only test directory permitted to link a platform backend or include `native.h`, and it reads the native record only to check it (PLAT-INV-11); this relaxes nothing for core, renderer, or `api.h`.
 
-**PLATFORM-101 (unavailable display is reported, not passed).** Time and thread-id cases run everywhere. If `platform_init` returns `NOT_SUPPORTED` because no window system is reachable, the window and event cases exit with CTest's skip code (`SKIP_RETURN_CODE 77`) and print the reason. They MUST NOT count as passed (`rules/testing.md`). CI for each backend runs where a display exists, which on Linux depends on the §11 ADR.
+**PLATFORM-101 (skip only on a declared headless environment).** `contract/platform_stateless` never skips. `contract/platform_window` exits with CTest's skip code (`SKIP_RETURN_CODE 77`), printing the reason, only when `platform_init` returns `NOT_SUPPORTED` **and** the environment variable `NAYLA_TEST_NO_DISPLAY` is set to `1`. Without that declaration a display is required, and `NOT_SUPPORTED` from `platform_init` is a FAIL, so a broken backend on a machine with a display cannot pass as a skip (`rules/testing.md`). CI jobs declare it: the Ubuntu jobs set it until the §11 Linux ADR lands (as must anyone running the suite on Linux, whose pre-ADR backend has no windowing); the macOS jobs do not (GitHub's macOS runners have a window session; if that proves false, the job sets it and the gap is reported, not hidden). There is no Windows CI runner, so the win32 suite runs only on developer machines until one is added.
 
-**PLATFORM-102 (no backend-specific assertions).** A conformance case MUST NOT branch on the backend. A behaviour that cannot be asserted identically on all backends is either specified here as unspecified (PLATFORM-021) or is a spec gap to escalate. Weakening the test is never the fix.
+**PLATFORM-102 (no backend-specific assertions).** A conformance assertion MUST NOT branch on the backend. Harness code is not an assertion: starting the second thread for PLAT-INV-6/7 MAY select host thread primitives (C11 `<threads.h>`, pthreads, Win32) by `#if` in one test-only helper. A behaviour that cannot be asserted identically on all backends is either specified here as unspecified (PLATFORM-021) or is a spec gap to escalate. Weakening the test is never the fix.
 
 ---
 
 ## 11. Open ADR dependencies and deferred decisions
 
-1. **Linux windowing strategy: X11, Wayland, or both.** specs.md §69 requires an ADR, and this spec deliberately does not decide it. The contract already accommodates every outcome: `X11` and `WAYLAND` native types are reserved (PLATFORM-071), and GPU backends degrade with `NOT_SUPPORTED` on a type they lack. `engine_platform_linux`, its CI display environment, and Linux conformance (PLATFORM-101) are blocked on that ADR. Nothing else in this spec is.
-2. **macOS backend language** (PLATFORM-095). It does not affect the contract.
-
-3. **A dedicated result code for OS failures (decided: not now).** PLATFORM-034 reuses `ENGINE_RESULT_NOT_SUPPORTED` for every OS-call failure rather than amending `result.md`. Reasons: CORE-RESULT-008 adds a code only when callers must tell two cases apart, and in this milestone every caller handles both the same way; the OS detail is logged where it happens. Known cost: "the OS refused" and "this platform lacks the feature" are indistinguishable from the code alone. Revisit when a caller must branch on the difference (retry vs. degrade, a headless case beyond PLATFORM-101, or a GPU backend separating "no capability" from "driver call failed"). The change is then a `result.md` amendment (e.g. `ENGINE_RESULT_PLATFORM_ERROR`) plus switching the call sites; the cost grows with the number of callers, so decide before many backends exist. Tracked in issue #18.
+1. **Linux windowing strategy: X11, Wayland, or both.** specs.md §69 requires an ADR, and this spec deliberately does not decide it. The contract already accommodates every outcome: `X11` and `WAYLAND` native types are reserved (PLATFORM-071), and GPU backends degrade with `NOT_SUPPORTED` on a type they lack. `engine_platform_linux`'s windowing (it ships time and thread identity only, PLATFORM-092), its CI display environment, Linux window conformance (PLATFORM-101), and the behaviour when the window-system connection is lost mid-run (X server or compositor exit; `platform_pump_events` returns `void` and cannot report it) are blocked on that ADR. Nothing else in this spec is.
+2. **macOS backend language.** The contract is C. Whether `src/platform/macos/` uses Objective-C translation units or C with the Objective-C runtime is decided by ADR when that backend is written. Either way, nothing Objective-C appears in `api.h` or `native.h`, and the contract is unaffected.
+3. **A dedicated result code for OS failures (decided: not now).** PLATFORM-034 reuses `ENGINE_RESULT_NOT_SUPPORTED` for every OS-call failure rather than amending `result.md`. Reasons: CORE-RESULT-008 adds a code only when callers must tell two cases apart, and in this milestone every production caller handles both the same way (log and exit); the OS detail is logged where it happens. The one caller that must tell them apart, the conformance suite, does so by environment declaration (PLATFORM-101), not by a new code. Known cost: "the OS refused" and "this platform lacks the feature" are indistinguishable from the code alone. Revisit when a caller must branch on the difference (retry vs. degrade, a headless case beyond PLATFORM-101, or a GPU backend separating "no capability" from "driver call failed"). The change is then a `result.md` amendment (e.g. `ENGINE_RESULT_PLATFORM_ERROR`) plus switching the call sites; the cost grows with the number of callers, so decide before many backends exist. Tracked in issue #18.
 
 ---
 
 ## 12. Invariants
 
-**PLAT-INV-1.** `PLATFORM_EVENT_NONE == 0`, `WINDOW_CLOSE_REQUESTED == 1`, `WINDOW_FRAMEBUFFER_RESIZED == 2`; `PLATFORM_NATIVE_WINDOW_NONE == 0` … `WAYLAND == 4`; `PLATFORM_EVENT_QUEUE_CAPACITY >= 8`. *(static_assert)*
+**PLAT-INV-1.** `PLATFORM_EVENT_NONE == 0`, `WINDOW_CLOSE_REQUESTED == 1`, `WINDOW_FRAMEBUFFER_RESIZED == 2`; `PLATFORM_NATIVE_WINDOW_NONE == 0` … `WAYLAND == 4`. *(static_assert)*
 
-**PLAT-INV-2.** No file under `src/core`, `src/renderer`, or `src/gpu/api.h` includes `platform/native.h` or names `PlatformNativeWindow`, `PlatformNativeObject`, or `platform_window_get_native`. *(grep)*
+**PLAT-INV-2.** No file under `src/core`, `src/renderer`, `src/platform/api.h`, `src/gpu/api.h`, or `tests/` outside `tests/platform/` includes `platform/native.h` or names `PlatformNativeWindow`, `PlatformNativeObject`, or `platform_window_get_native`. *(grep)*
 
-**PLAT-INV-3.** `src/platform/api.h` and `src/platform/native.h` include no OS or GPU SDK header and contain no `void *`, `bool` struct field, `u32`, or `_t`-suffixed engine type. *(grep — TYPE-INV-1/3/8, CORE-TYPES-011)*
+**PLAT-INV-3.** (a) The `#include` lines of `src/platform/api.h` and `src/platform/native.h` are exactly PLATFORM-094's sets (the LOG-INV-10 pattern), and the headers contain no `void *` other than callback `user_data` parameters (TYPE-INV-8, CORE-TYPES-016), no `bool` struct field, no `u32`, and no `_t`-suffixed engine type. (b) One forbidden-include list, matched case-insensitively on `#include` and `#import` lines: `windows.h`, `win*.h`, `unistd.h`, `pthread.h`, `dlfcn.h`, `sys/`, `mach/`, `objc/`, `AppKit/`, `Cocoa/`, `Foundation/`, `CoreFoundation/`, `X11/`, `xcb/`, `wayland-`, `vulkan_win32.h`, `vulkan_metal.h`, `vulkan_xlib.h`, `vulkan_xcb.h`, `vulkan_wayland.h`, plus the token `VK_USE_PLATFORM_` anywhere. It applies with zero exemptions to `src/core`, `src/renderer`, `src/platform/api.h`, `src/platform/native.h`, and `src/gpu/api.h`, and to each `src/gpu/<backend>/` with only basenames matching `^surface_(win32|cocoa|x11|wayland)\.(c|m)$` exempt (ADR-010). (c) No file under `src/platform/<os>/` includes `vulkan`, `d3d1`, `dxgi`, `Metal/`, or `QuartzCore/` (case-insensitive). *(grep — TYPE-INV-1/3/8, CORE-TYPES-011; this list replaces `forbid_os_gpu_includes`' lowercase-only OS patterns)*
 
-**PLAT-INV-4.** `engine_renderer` does not link `engine_platform_api` or any `engine_platform_*` backend. `engine_core` and every GPU backend do not link any `engine_platform_*` backend. *(build-graph — `forbid_transitive_link`)*
+**PLAT-INV-4.** `engine_renderer` does not link `engine_platform_api`, `engine_platform`, `engine_platform_win32`, `engine_platform_macos`, or `engine_platform_linux`. `engine_core` and every GPU backend library do not link `engine_platform` or any of those three backends. *(build-graph — `forbid_transitive_link`, called once per forbidden name, the alias included, because it compares target-name strings and does not see through an `ALIAS`. It is a call-time snapshot, so the calls are placed after every target exists, at the end of `src/CMakeLists.txt`.)*
 
 **PLAT-INV-5.** The only Platform API function declarations without a `Platform` or `PlatformWindow` pointer parameter (`Platform *`, `Platform **`, `PlatformWindow *`, `PlatformWindow **`) are the four functions of PLATFORM-024/025. *(grep over `api.h`)*
 
-**PLAT-INV-6.** `platform_time_now_ns` is non-decreasing across 10⁶ consecutive calls on one thread and across a happens-before edge between two threads. It never returns `UINT64_MAX`. A `sleep`-free busy loop eventually observes an increase. *(conformance)*
+**PLAT-INV-6.** `platform_time_now_ns` is non-decreasing across 10⁶ consecutive calls on one thread and across a happens-before edge between two threads. It never returns `UINT64_MAX`. A `sleep`-free busy loop eventually observes an increase. *(conformance: stateless)*
 
-**PLAT-INV-7.** `platform_thread_current_id` is non-zero, equal across calls on one thread, and different between two concurrently live threads. *(conformance — the test may use the C11 `<threads.h>` or the host's threads, test-only)*
+**PLAT-INV-7.** `platform_thread_current_id` is non-zero, equal across calls on one thread, and different between two concurrently live threads. *(conformance: stateless — thread start via the PLATFORM-102 helper)*
 
-**PLAT-INV-8.** With the PLATFORM-025 adapters installed and no `Platform` created, a captured record has `timestamp_ns != ENGINE_LOG_TIMESTAMP_UNKNOWN` and `thread_id != ENGINE_LOG_THREAD_UNKNOWN`. *(conformance)*
+**PLAT-INV-8.** With the PLATFORM-025 adapters installed and no `Platform` created, a captured record has `timestamp_ns != ENGINE_LOG_TIMESTAMP_UNKNOWN` and `thread_id != ENGINE_LOG_THREAD_UNKNOWN`. *(conformance: stateless)*
 
-**PLAT-INV-9.** `platform_init(NULL, …)` returns `INVALID_ARGUMENT`. An always-`NULL` allocator makes `platform_init` return `OUT_OF_MEMORY` and leaves `*out_platform == NULL`. A leak-tracking allocator sees equal alloc/free counts after `platform_window_destroy` + `platform_shutdown`. A `NULL` logger produces no output and no crash. *(conformance)*
+**PLAT-INV-9.** `platform_init(NULL, …)` returns `INVALID_ARGUMENT`. Where the window-system probe succeeds, an always-`NULL` allocator makes `platform_init` return `OUT_OF_MEMORY` and leaves `*out_platform == NULL` (PLATFORM-033 order). A leak-tracking allocator sees equal alloc/free counts after `platform_window_destroy` + `platform_shutdown`, including across a second `platform_init`/`platform_shutdown` cycle (PLATFORM-036). A `NULL` logger produces no output and no crash. *(conformance: window)*
 
-**PLAT-INV-10.** `platform_window_create` returns `INVALID_ARGUMENT` for each PLATFORM-041 case (zero width, zero height, `NULL` title, unknown flag bit) and leaves `*out_window == NULL`. *(conformance)*
+**PLAT-INV-10.** `platform_window_create` returns `INVALID_ARGUMENT` for each PLATFORM-041 case (zero width, zero height, `NULL` title, unknown flag bit) and leaves `*out_window == NULL`. *(conformance: window)*
 
-**PLAT-INV-11.** A newly created window has `should_close == false`, a non-zero framebuffer size (unless minimized), and `platform_window_get_native` returns `SUCCESS` with a `type` and fields matching PLATFORM-071's table for the host. *(conformance)*
+**PLAT-INV-11.** A newly created window has `should_close == false`, a non-zero framebuffer size (unless minimized), and no queued event (PLATFORM-041). `platform_window_get_native` returns `SUCCESS` with `type != NONE`, and the fields match the table row for the returned `type`: every field the row gives as `NULL` or `0` holds that value, and every other field is non-`NULL`/non-zero. *(conformance: window)*
 
-**PLAT-INV-12.** `platform_next_event` on an empty queue returns `false` without writing. After `platform_window_destroy`, no queued event refers to the destroyed window. *(conformance)*
+**PLAT-INV-12.** `platform_next_event` on an empty queue returns `false` without writing. After `platform_window_destroy`, no queued event refers to the destroyed window. The second clause is non-vacuous only when an event was pending, and the API has no portable way to synthesize one (no input or resize call), so PLATFORM-044's purge is also review-enforced. *(conformance: window)*
 
-**PLAT-INV-13.** `platform_shutdown(NULL)`, `platform_window_destroy(NULL)`, and `platform_pump_events(NULL)` return normally. `platform_window_should_close(NULL)` returns `false`. *(conformance)*
+**PLAT-INV-13.** `platform_shutdown(NULL)`, `platform_window_destroy(NULL)`, and `platform_pump_events(NULL)` return normally. `platform_window_should_close(NULL)` returns `false`. *(conformance: stateless)*
 
 **PLAT-INV-14.** No file under `src/platform` declares a file-scope non-`const` variable. *(grep — PLATFORM-090; `static const` permitted)*
 
@@ -372,20 +369,19 @@ The application owns and sequences `Platform`, just as it owns the logger. Wheth
 
 1. **Logging before any `Platform` exists:** timestamps and thread ids are real, because the sources are stateless (PLATFORM-024/026).
 2. **Logging from a non-platform thread:** the sources are `THREAD_SAFE`, so the record is correct. Whether the *sinks* are safe on that thread is CORE-LOG-071's question, not the platform's.
-3. **Minimized window:** framebuffer `0 × 0`, a `FRAMEBUFFER_RESIZED` to `0 × 0` is queued, and the swapchain must not be recreated at zero size. That is the renderer/GPU contract's obligation, signalled here.
+3. **Minimized window:** framebuffer `0 × 0` on every backend, a `FRAMEBUFFER_RESIZED` to `0 × 0` is queued on minimize and one with the restored size on restore (PLATFORM-042), and the swapchain must not be recreated at zero size. That is the renderer/GPU contract's obligation, signalled here.
 4. **Resize storm during a drag:** coalesced to one queued event per window (PLATFORM-052), and the query returns the final size.
-5. **Close requested, application ignores it:** the window stays and `should_close` stays `true` (PLATFORM-043). A repeat request queues no second event.
-6. **Window-system connection lost mid-run** (X server or compositor exit): `platform_pump_events` cannot report it, because it returns `void`. The backend sets every window's close flag, queues `CLOSE_REQUESTED` for each, and logs at `ERROR`. The application's normal close path then runs.
-7. **`platform_shutdown` with live windows:** logs `ERROR` and leaks (PLATFORM-035).
-8. **Window destroyed while a GPU surface still uses it:** undefined behaviour and undetectable (PLATFORM-073). The lifecycle ordering (§8) prevents it.
-9. **Second `Platform` in one process:** undefined behaviour, deliberately not detected (PLATFORM-036/090).
-10. **`platform_init` on a non-initial thread:** violates PLATFORM-080. Backends MAY return `INVALID_STATE` when the OS can tell them (`pthread_main_np`, `NSThread isMainThread`). Otherwise behaviour is undefined.
-11. **Event queue full after coalescing:** the event is dropped with a `WARN`. State queries stay correct (PLATFORM-052).
-12. **Win32 modal move/size loop or macOS live resize:** `platform_pump_events` may not return until the interaction ends, and frames stall. Rendering during the interaction is out of scope (PLATFORM-050).
-13. **Huge uptime, high-frequency counter:** conversion cannot overflow (PLATFORM-022). `UINT64_MAX` ns is about 584 years.
-14. **Clock across system suspend:** unspecified, and frame code clamps the delta (PLATFORM-021).
-15. **GPU backend given `X11` or `WAYLAND` before the Linux ADR lands:** returns `NOT_SUPPORTED` (PLATFORM-071).
-16. **Invalid UTF-8 title:** no crash and no failure. The backend may substitute U+FFFD (PLATFORM-041).
+5. **Close requested, application ignores it:** the window stays and `should_close` stays `true` (PLATFORM-043). Only the first request queues `CLOSE_REQUESTED`; later ones queue nothing (PLATFORM-052).
+6. **`platform_shutdown` with live windows:** logs `ERROR` and leaks (PLATFORM-035).
+7. **Window destroyed while a GPU surface still uses it:** undefined behaviour and undetectable (PLATFORM-073). The lifecycle ordering (§8) prevents it.
+8. **Second `Platform` in one process:** undefined behaviour, deliberately not detected (PLATFORM-036/090). Sequential re-initialization is supported.
+9. **`platform_init` on a non-initial thread:** violates PLATFORM-080; behaviour is undefined.
+10. **Event queue full after coalescing:** the event is dropped with a `WARN`. State queries stay correct (PLATFORM-052).
+11. **Win32 modal move/size loop or macOS live resize:** `platform_pump_events` may not return until the interaction ends, and frames stall. Rendering during the interaction is out of scope (PLATFORM-050).
+12. **Huge uptime, high-frequency counter:** conversion cannot overflow (PLATFORM-022). `UINT64_MAX` ns is about 584 years.
+13. **Clock across system suspend:** unspecified, and frame code clamps the delta (PLATFORM-021).
+14. **GPU backend given `X11` or `WAYLAND` before the Linux ADR lands:** returns `NOT_SUPPORTED` (PLATFORM-071).
+15. **Invalid UTF-8 title:** no crash and no failure. The backend may substitute U+FFFD (PLATFORM-041).
 
 ---
 
@@ -395,9 +391,11 @@ The application owns and sequences `Platform`, just as it owns the logger. Wheth
 |---|---|
 | `src/platform/api.h` | Replace the placeholder with §3–§6 declarations. The TASK-007 normative block stays verbatim. |
 | `src/platform/native.h` (new) | §7.2. |
-| `src/platform/CMakeLists.txt` | `engine_platform_api` links `engine_foundation`. Add backend targets, `NAYLA_PLATFORM_BACKEND`, the `engine_platform` alias, and the checks for PLAT-INV-2/3/4/14. The OS-include check must scope to the top-level headers, not backend subdirectories (`forbid-pattern.sh` is recursive). |
-| `src/renderer/CMakeLists.txt` | `forbid_transitive_link(engine_renderer engine_platform_api)` (PLAT-INV-4). |
-| `main.c` | Install the adapters after `engine_log_init`, then `platform_init`/window/loop/teardown per PLATFORM-083. |
-| `tests/platform/` (new) | The conformance suite (PLATFORM-100). |
+| `src/platform/CMakeLists.txt` | `engine_platform_api` links `engine_foundation`. Add backend targets, `NAYLA_PLATFORM_BACKEND`, the `engine_platform` alias, and the checks for PLAT-INV-2/3/14. The OS-include check must scope to the top-level headers, not backend subdirectories (`forbid-pattern.sh` is recursive). |
+| `src/CMakeLists.txt` | At the end, after every target exists: the PLAT-INV-4 `forbid_transitive_link` calls, one per forbidden name. |
+| `cmake/Common.cmake`, `forbid-pattern.sh` (follow-up build task) | PLAT-INV-3(b) needs a regex-exemption variant of `forbid-pattern.sh`, which today exempts one literal basename. `forbid_transitive_link`'s message hard-codes `ALLOC-INV-11` and must be generalized (take the invariant ID) before reuse. |
+| `main.c` | Install the adapters after `engine_log_init`, then `platform_init`/window/loop/teardown per PLATFORM-083. On Linux the application logs and exits with `NOT_SUPPORTED` until the ADR. |
+| `tests/platform/` (new), `tests/CMakeLists.txt` | The two conformance tests (PLATFORM-100); `add_subdirectory(platform)`. |
+| CI (`ci.yml`) | Ubuntu jobs set `NAYLA_TEST_NO_DISPLAY=1` (PLATFORM-101). |
 
-The suggested order is: header + `native.h` + static/grep checks (no backend needed), then `engine_platform_win32` and `engine_platform_macos` with the conformance suite, then `main.c`. Linux waits for its ADR. No existing behaviour changes.
+The suggested order is: header + `native.h` + static/grep checks (no backend needed), then the time/thread-only `engine_platform_linux` plus `engine_platform_win32` and `engine_platform_macos` with the conformance suite, then `main.c`. Linux windowing waits for its ADR. No existing behaviour changes.

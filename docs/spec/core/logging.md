@@ -347,6 +347,8 @@ Two consequences worth stating because they are the payoff for CORE-LOG-008:
 - The logger needs **no allocator**, so it is available strictly before `engine_init` — which means `engine_init`'s own `ENGINE_RESULT_OUT_OF_MEMORY` branch is loggable. Had the logger required an allocator, the ordering question ("allocator first or logger first?") would have had no good answer.
 - The context sources are installed **after** `platform_initialize`, because that is when a monotonic clock and thread identity first exist. Records emitted before that point carry the two "unknown" sentinels (CORE-LOG-040) rather than a wrong timestamp.
 
+> **Amended by `platform.md` (PLATFORM-024/026/083).** The Platform API's time and thread-id sources are stateless and valid before any `Platform` exists, so they MAY be installed right after `engine_log_init`, and that is the recommended order. Installing after platform initialization remains conforming. Under the recommended order, records before `platform_init` carry real values; the sentinels appear only before the sources are installed.
+
 **CORE-LOG-083 (`engine_log_flush`).** `void engine_log_flush(const EngineLogger *logger)` calls `flush` on every registered sink that has one, in registration order. It is a no-op for a `NULL` logger. It is `const` because flushing changes nothing about the logger itself (CORE-LOG-006).
 
 **CORE-LOG-084 (construction parameters).** A subsystem that logs takes `const EngineLogger *logger` beside its `const EngineAllocator *allocator`, documents that `NULL` is permitted, and stores it (CORE-LOG-003/005). No validation is performed on it beyond that, because `NULL` is legal and a non-`NULL` logger's validity is CORE-LOG-004's caller obligation.
@@ -414,7 +416,7 @@ Testable statements, in the style of `rules/testing.md`, types.md §7, result.md
 9. **A sink whose backing object is destroyed while still registered** — undefined behaviour, undetectable (CORE-LOG-004). Unregister before destroying.
 10. **The table is full** — `ENGINE_RESULT_INVALID_STATE`; the ninth sink is not silently dropped and the earlier eight are unaffected (CORE-LOG-036).
 11. **Logging on the out-of-memory path** — fully supported and is the reason for CORE-LOG-008: no allocation occurs anywhere in `engine_log_write`.
-12. **Logging before `platform_initialize`** — supported; the record carries the two "unknown" sentinels (CORE-LOG-040/082).
+12. **Logging before `platform_initialize`** — supported; the record carries the two "unknown" sentinels (CORE-LOG-040/082). *Amended by `platform.md` PLATFORM-026:* with the sources installed right after `engine_log_init`, the record carries real values; the sentinels apply only before installation.
 13. **A time source that goes backwards** (a caller installed a wall clock) — a violation of CORE-LOG-043. The engine does not check it; log order becomes misleading, and that is the caller's error, exactly as CORE-ALLOC-032's foreign pointer is.
 14. **`ENGINE_LOG_LEVEL_OFF` passed as a record's level** — forbidden by CORE-LOG-011. The macros cannot produce it; a direct `engine_log_write` call that does is a caller bug and the record is discarded.
 15. **A release build wanting `TRACE`** — define `ENGINE_LOG_COMPILE_MIN_LEVEL=0` for that build. The compile-time default is a default, not a rule (CORE-LOG-015).
