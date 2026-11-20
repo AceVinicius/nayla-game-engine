@@ -14,27 +14,33 @@
  * - NULL logger tolerance everywhere (CORE-LOG-005).
  */
 
-ENGINE_NODISCARD EngineResult engine_log_init(EngineLogger *logger,
+static bool level_in_range(int32_t level) {
+    return level >= ENGINE_LOG_LEVEL_TRACE && level <= ENGINE_LOG_LEVEL_OFF;
+}
+
+/* Empty the sink table and drop the context sources. */
+static void clear_sinks_and_sources(EngineLogger *logger) {
+    logger->sink_count = 0;
+    for (size_t i = 0; i < ENGINE_LOG_MAX_SINKS; i++) {
+        logger->sinks[i] = NULL;
+    }
+    logger->time_source = NULL;
+    logger->thread_id_source = NULL;
+    logger->context_user_data = NULL;
+}
+
+EngineResult engine_log_init(EngineLogger *logger,
                                               EngineLogLevel min_level) {
     if (logger == NULL) {
         return ENGINE_RESULT_INVALID_ARGUMENT;
     }
 
-    if ((int32_t)min_level < ENGINE_LOG_LEVEL_TRACE ||
-        (int32_t)min_level > ENGINE_LOG_LEVEL_OFF) {
+    if (!level_in_range((int32_t)min_level)) {
         return ENGINE_RESULT_INVALID_ARGUMENT;
     }
 
-    logger->sink_count = 0;
+    clear_sinks_and_sources(logger);
     logger->min_level = (int32_t)min_level;
-    logger->time_source = NULL;
-    logger->thread_id_source = NULL;
-    logger->context_user_data = NULL;
-
-    for (size_t i = 0; i < ENGINE_LOG_MAX_SINKS; i++) {
-        logger->sinks[i] = NULL;
-    }
-
     return ENGINE_RESULT_SUCCESS;
 }
 
@@ -51,17 +57,10 @@ void engine_log_shutdown(EngineLogger *logger) {
         }
     }
 
-    /* Clear the sink table and context sources. */
-    logger->sink_count = 0;
-    for (size_t i = 0; i < ENGINE_LOG_MAX_SINKS; i++) {
-        logger->sinks[i] = NULL;
-    }
-    logger->time_source = NULL;
-    logger->thread_id_source = NULL;
-    logger->context_user_data = NULL;
+    clear_sinks_and_sources(logger);
 }
 
-ENGINE_NODISCARD EngineResult engine_log_add_sink(EngineLogger *logger,
+EngineResult engine_log_add_sink(EngineLogger *logger,
                                                   const EngineLogSink *sink) {
     if (logger == NULL || sink == NULL) {
         return ENGINE_RESULT_INVALID_ARGUMENT;
@@ -71,8 +70,7 @@ ENGINE_NODISCARD EngineResult engine_log_add_sink(EngineLogger *logger,
         return ENGINE_RESULT_INVALID_ARGUMENT;
     }
 
-    if ((int32_t)sink->min_level < ENGINE_LOG_LEVEL_TRACE ||
-        (int32_t)sink->min_level > ENGINE_LOG_LEVEL_OFF) {
+    if (!level_in_range((int32_t)sink->min_level)) {
         return ENGINE_RESULT_INVALID_ARGUMENT;
     }
 
@@ -94,7 +92,7 @@ ENGINE_NODISCARD EngineResult engine_log_add_sink(EngineLogger *logger,
     return ENGINE_RESULT_SUCCESS;
 }
 
-ENGINE_NODISCARD EngineResult engine_log_remove_sink(EngineLogger *logger,
+EngineResult engine_log_remove_sink(EngineLogger *logger,
                                                      const EngineLogSink *sink) {
     if (logger == NULL || sink == NULL) {
         return ENGINE_RESULT_INVALID_ARGUMENT;
@@ -116,14 +114,13 @@ ENGINE_NODISCARD EngineResult engine_log_remove_sink(EngineLogger *logger,
     return ENGINE_RESULT_INVALID_STATE;
 }
 
-ENGINE_NODISCARD EngineResult engine_log_set_level(EngineLogger *logger,
+EngineResult engine_log_set_level(EngineLogger *logger,
                                                    EngineLogLevel min_level) {
     if (logger == NULL) {
         return ENGINE_RESULT_INVALID_ARGUMENT;
     }
 
-    if ((int32_t)min_level < ENGINE_LOG_LEVEL_TRACE ||
-        (int32_t)min_level > ENGINE_LOG_LEVEL_OFF) {
+    if (!level_in_range((int32_t)min_level)) {
         return ENGINE_RESULT_INVALID_ARGUMENT;
     }
 
@@ -138,7 +135,7 @@ EngineLogLevel engine_log_get_level(const EngineLogger *logger) {
     return (EngineLogLevel)logger->min_level;
 }
 
-ENGINE_NODISCARD EngineResult engine_log_set_context_source(
+EngineResult engine_log_set_context_source(
     EngineLogger *logger,
     EngineLogTimeFn time_source,
     EngineLogThreadIdFn thread_id_source,

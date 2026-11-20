@@ -308,91 +308,60 @@ const char *engine_log_level_name(EngineLogLevel level);
 const EngineLogSink *engine_console_log_sink(void);
 
 /* ----- The six logging macros -----
- * CORE-LOG-060/061/062: each is selected by #if on literal level numbers,
- * expands to a do-while statement when enabled, to ((void)0) when disabled.
+ * CORE-LOG-060/061/062: each is selected by #if on literal level numbers
+ * (never enumerator names, which the preprocessor cannot see). Enabled, it
+ * expands to a do-while statement; below ENGINE_LOG_COMPILE_MIN_LEVEL it
+ * expands to ((void)0), so the call and its arguments are never compiled.
  * CORE-LOG-026: format string MUST be a literal.
  */
+#define ENGINE_LOG_AT_(level, logger, subsystem, ...) \
+    do { \
+        if (engine_log_is_enabled((logger), (level))) { \
+            engine_log_write((logger), (level), (subsystem), \
+                             ENGINE_LOG_SOURCE_LOCATION ? __FILE__ : NULL, \
+                             ENGINE_LOG_SOURCE_LOCATION ? __LINE__ : 0, \
+                             __VA_ARGS__); \
+        } \
+    } while (0)
 
 #if 0 >= ENGINE_LOG_COMPILE_MIN_LEVEL
     #define ENGINE_LOG_TRACE(logger, subsystem, ...) \
-        do { \
-            if (engine_log_is_enabled((logger), ENGINE_LOG_LEVEL_TRACE)) { \
-                engine_log_write((logger), ENGINE_LOG_LEVEL_TRACE, (subsystem), \
-                                 ENGINE_LOG_SOURCE_LOCATION ? __FILE__ : NULL, \
-                                 ENGINE_LOG_SOURCE_LOCATION ? __LINE__ : 0, \
-                                 __VA_ARGS__); \
-            } \
-        } while (0)
+        ENGINE_LOG_AT_(ENGINE_LOG_LEVEL_TRACE, logger, subsystem, __VA_ARGS__)
 #else
     #define ENGINE_LOG_TRACE(logger, subsystem, ...) ((void)0)
 #endif
 
 #if 1 >= ENGINE_LOG_COMPILE_MIN_LEVEL
     #define ENGINE_LOG_DEBUG(logger, subsystem, ...) \
-        do { \
-            if (engine_log_is_enabled((logger), ENGINE_LOG_LEVEL_DEBUG)) { \
-                engine_log_write((logger), ENGINE_LOG_LEVEL_DEBUG, (subsystem), \
-                                 ENGINE_LOG_SOURCE_LOCATION ? __FILE__ : NULL, \
-                                 ENGINE_LOG_SOURCE_LOCATION ? __LINE__ : 0, \
-                                 __VA_ARGS__); \
-            } \
-        } while (0)
+        ENGINE_LOG_AT_(ENGINE_LOG_LEVEL_DEBUG, logger, subsystem, __VA_ARGS__)
 #else
     #define ENGINE_LOG_DEBUG(logger, subsystem, ...) ((void)0)
 #endif
 
 #if 2 >= ENGINE_LOG_COMPILE_MIN_LEVEL
     #define ENGINE_LOG_INFO(logger, subsystem, ...) \
-        do { \
-            if (engine_log_is_enabled((logger), ENGINE_LOG_LEVEL_INFO)) { \
-                engine_log_write((logger), ENGINE_LOG_LEVEL_INFO, (subsystem), \
-                                 ENGINE_LOG_SOURCE_LOCATION ? __FILE__ : NULL, \
-                                 ENGINE_LOG_SOURCE_LOCATION ? __LINE__ : 0, \
-                                 __VA_ARGS__); \
-            } \
-        } while (0)
+        ENGINE_LOG_AT_(ENGINE_LOG_LEVEL_INFO, logger, subsystem, __VA_ARGS__)
 #else
     #define ENGINE_LOG_INFO(logger, subsystem, ...) ((void)0)
 #endif
 
 #if 3 >= ENGINE_LOG_COMPILE_MIN_LEVEL
     #define ENGINE_LOG_WARN(logger, subsystem, ...) \
-        do { \
-            if (engine_log_is_enabled((logger), ENGINE_LOG_LEVEL_WARN)) { \
-                engine_log_write((logger), ENGINE_LOG_LEVEL_WARN, (subsystem), \
-                                 ENGINE_LOG_SOURCE_LOCATION ? __FILE__ : NULL, \
-                                 ENGINE_LOG_SOURCE_LOCATION ? __LINE__ : 0, \
-                                 __VA_ARGS__); \
-            } \
-        } while (0)
+        ENGINE_LOG_AT_(ENGINE_LOG_LEVEL_WARN, logger, subsystem, __VA_ARGS__)
 #else
     #define ENGINE_LOG_WARN(logger, subsystem, ...) ((void)0)
 #endif
 
 #if 4 >= ENGINE_LOG_COMPILE_MIN_LEVEL
     #define ENGINE_LOG_ERROR(logger, subsystem, ...) \
-        do { \
-            if (engine_log_is_enabled((logger), ENGINE_LOG_LEVEL_ERROR)) { \
-                engine_log_write((logger), ENGINE_LOG_LEVEL_ERROR, (subsystem), \
-                                 ENGINE_LOG_SOURCE_LOCATION ? __FILE__ : NULL, \
-                                 ENGINE_LOG_SOURCE_LOCATION ? __LINE__ : 0, \
-                                 __VA_ARGS__); \
-            } \
-        } while (0)
+        ENGINE_LOG_AT_(ENGINE_LOG_LEVEL_ERROR, logger, subsystem, __VA_ARGS__)
 #else
     #define ENGINE_LOG_ERROR(logger, subsystem, ...) ((void)0)
 #endif
 
 #if 5 >= ENGINE_LOG_COMPILE_MIN_LEVEL
     #define ENGINE_LOG_FATAL(logger, subsystem, ...) \
-        do { \
-            if (engine_log_is_enabled((logger), ENGINE_LOG_LEVEL_FATAL)) { \
-                engine_log_write((logger), ENGINE_LOG_LEVEL_FATAL, (subsystem), \
-                                 ENGINE_LOG_SOURCE_LOCATION ? __FILE__ : NULL, \
-                                 ENGINE_LOG_SOURCE_LOCATION ? __LINE__ : 0, \
-                                 __VA_ARGS__); \
-            } \
-        } while (0)
+        ENGINE_LOG_AT_(ENGINE_LOG_LEVEL_FATAL, logger, subsystem, __VA_ARGS__)
 #else
     #define ENGINE_LOG_FATAL(logger, subsystem, ...) ((void)0)
 #endif

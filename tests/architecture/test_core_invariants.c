@@ -50,9 +50,11 @@ static const Check checks[] = {
      "grep -rE 'engine_alloc_fn|engine_free_fn|engine_set_allocators' " BOTH},
     /* \bstatic\b does not match static_assert; `grep -v const` allows the
      * sanctioned static const singletons. Matched on "Allocator" because
-     * every allocator type name contains it. */
+     * every allocator type name contains it. [^(]* requires the type to come
+     * before any "(", so static helper functions taking the type as a
+     * parameter are not mistaken for mutable globals. */
     {"ALLOC-INV-10: no file-scope mutable allocator state",
-     "grep -rE '\\bstatic\\b.*Allocator' " BOTH NOT_IN("const")},
+     "grep -rE '\\bstatic\\b[^(]*Allocator' " BOTH NOT_IN("const")},
 
     NO_STREAM("printf", "\\bprintf\\s*\\("),
     NO_STREAM("fprintf", "\\bfprintf\\s*\\("),
@@ -73,7 +75,7 @@ static const Check checks[] = {
      "grep -rE '_last_error|_get_error' " BOTH},
 
     {"LOG-INV-5: no file-scope mutable logger state",
-     "grep -rE '\\bstatic\\b.*(EngineLogger|EngineLogSink|EngineLogLevel)' " BOTH NOT_IN("const")},
+     "grep -rE '\\bstatic\\b[^(]*(EngineLogger|EngineLogSink|EngineLogLevel)' " BOTH NOT_IN("const")},
     /* Repo-wide, but C sources only: docs and tasks discuss these names in
      * prose, and this file names them to check for them. */
     {"LOG-INV-5: no global logger symbols anywhere in C source",
