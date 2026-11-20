@@ -6,10 +6,10 @@
 #include <stdlib.h>
 
 /* TYPE-INV-5: the one place the engine asserts its float and size_t sizes. */
-static_assert(sizeof(float) == 4, "float must be exactly 4 bytes (IEEE-754 binary32)");
-static_assert(sizeof(double) == 8, "double must be exactly 8 bytes (IEEE-754 binary64)");
-static_assert(CHAR_BIT == 8, "CHAR_BIT must be 8");
-static_assert(sizeof(size_t) == sizeof(void *), "size_t must match pointer size");
+_Static_assert(sizeof(float) == 4, "float must be exactly 4 bytes (IEEE-754 binary32)");
+_Static_assert(sizeof(double) == 8, "double must be exactly 8 bytes (IEEE-754 binary64)");
+_Static_assert(CHAR_BIT == 8, "CHAR_BIT must be 8");
+_Static_assert(sizeof(size_t) == sizeof(void *), "size_t must match pointer size");
 
 /* CORE-ALLOC-012/015: non-zero size, power-of-two alignment within bounds.
  * Checked by engine_alloc before calling through (CORE-ALLOC-016: so a caller
