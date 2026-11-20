@@ -32,6 +32,13 @@ uint64_t platform_log_thread_id_source(void *user_data) {
     return platform_thread_current_id();
 }
 
+/* PLATFORM-031 / CORE-ALLOC-068, -070: NULL resolves to the default once, and
+ * the resolved allocator must have both callbacks. */
+static bool allocator_is_valid(const EngineAllocator *allocator) {
+    const EngineAllocator *resolved = allocator ? allocator : engine_default_allocator();
+    return resolved->alloc && resolved->free;
+}
+
 EngineResult platform_init(Platform **out_platform,
                            const EngineAllocator *allocator,
                            const EngineLogger *logger) {
@@ -40,9 +47,7 @@ EngineResult platform_init(Platform **out_platform,
     }
     *out_platform = NULL;
 
-    /* PLATFORM-031 / CORE-ALLOC-068, -070: resolve NULL once, then validate. */
-    const EngineAllocator *resolved = allocator ? allocator : engine_default_allocator();
-    if (!resolved->alloc || !resolved->free) {
+    if (!allocator_is_valid(allocator)) {
         return ENGINE_RESULT_INVALID_ARGUMENT;
     }
 
@@ -66,11 +71,7 @@ EngineResult platform_window_create(PlatformWindow **out_window,
 
     /* PLATFORM-041 validation. */
     if (!platform || !desc || !desc->title || desc->width == 0 || desc->height == 0 ||
-        (desc->flags & ~PLATFORM_WINDOW_RESIZABLE) != 0) {
-        return ENGINE_RESULT_INVALID_ARGUMENT;
-    }
-    const EngineAllocator *resolved = allocator ? allocator : engine_default_allocator();
-    if (!resolved->alloc || !resolved->free) {
+        (desc->flags & ~PLATFORM_WINDOW_RESIZABLE) != 0 || !allocator_is_valid(allocator)) {
         return ENGINE_RESULT_INVALID_ARGUMENT;
     }
     return ENGINE_RESULT_NOT_SUPPORTED;

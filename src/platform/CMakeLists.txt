@@ -59,3 +59,6 @@ foreach(_nayla_dir IN ITEMS ${_nayla_backend_dir} ${_nayla_common_dir})
   forbid_direct_allocation(${_nayla_backend_target} ${_nayla_dir})
   forbid_direct_output(${_nayla_backend_target} ${_nayla_dir})
 endforeach()
+
+# PLATFORM-094: OS headers belong in src/platform/<os>/ only, never in the shared code.
+forbid_os_gpu_includes(${_nayla_backend_target} ${_nayla_common_dir})

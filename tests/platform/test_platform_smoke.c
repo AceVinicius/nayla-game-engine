@@ -78,23 +78,35 @@ static int test_platform_init_rules(void) {
 /* PLATFORM-041: validation runs before NOT_SUPPORTED. */
 static int test_window_create_rules(void) {
     PlatformWindowDesc desc = {"smoke", 640, 480, 0};
-    PlatformWindow *w = NULL;
     char sentinel = 0;
-    Platform *platform = (Platform *)&sentinel; /* never dereferenced by the stub */
+    Platform *platform = (Platform *)&sentinel;     /* never dereferenced by the stub */
+    PlatformWindow *const poison = (PlatformWindow *)&sentinel;
+    PlatformWindow *w = poison; /* reset before every call so "left non-NULL" can fail */
 
     EXPECT(platform_window_create(NULL, platform, NULL, &desc), ENGINE_RESULT_INVALID_ARGUMENT);
-    EXPECT(platform_window_create(&w, NULL, NULL, &desc), ENGINE_RESULT_INVALID_ARGUMENT);
-    EXPECT(platform_window_create(&w, platform, NULL, NULL), ENGINE_RESULT_INVALID_ARGUMENT);
 
     PlatformWindowDesc no_title = {NULL, 640, 480, 0};
-    EXPECT(platform_window_create(&w, platform, NULL, &no_title), ENGINE_RESULT_INVALID_ARGUMENT);
-
     PlatformWindowDesc zero_width = {"smoke", 0, 480, 0};
-    EXPECT(platform_window_create(&w, platform, NULL, &zero_width), ENGINE_RESULT_INVALID_ARGUMENT);
-
+    PlatformWindowDesc zero_height = {"smoke", 640, 0, 0};
     PlatformWindowDesc unknown_flag = {"smoke", 640, 480, 0x80000000u};
-    EXPECT(platform_window_create(&w, platform, NULL, &unknown_flag), ENGINE_RESULT_INVALID_ARGUMENT);
+    struct { Platform *platform; const PlatformWindowDesc *desc; } invalid[] = {
+        {NULL, &desc}, {platform, NULL}, {platform, &no_title},
+        {platform, &zero_width}, {platform, &zero_height}, {platform, &unknown_flag},
+    };
+    for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+        w = poison;
+        EXPECT(platform_window_create(&w, invalid[i].platform, NULL, invalid[i].desc),
+               ENGINE_RESULT_INVALID_ARGUMENT);
+        CHECK(w == NULL, "invalid case %zu left *out_window non-NULL", i);
+    }
 
+    EngineAllocator no_free = *engine_default_allocator();
+    no_free.free = NULL;
+    w = poison;
+    EXPECT(platform_window_create(&w, platform, &no_free, &desc), ENGINE_RESULT_INVALID_ARGUMENT);
+    CHECK(w == NULL, "bad allocator left *out_window non-NULL");
+
+    w = poison;
     EXPECT(platform_window_create(&w, platform, NULL, &desc), ENGINE_RESULT_NOT_SUPPORTED);
     CHECK(w == NULL, "platform_window_create left *out_window non-NULL");
     return 0;
@@ -112,9 +124,9 @@ static int test_null_tolerance(void) {
     EXPECT(platform_window_get_framebuffer_size(NULL, &width, &height), ENGINE_RESULT_INVALID_ARGUMENT);
     CHECK(width == 7 && height == 9, "framebuffer size written on INVALID_ARGUMENT");
 
-    PlatformNativeWindow native = {0, NULL, NULL, 0};
+    PlatformNativeWindow native = {77, NULL, NULL, 5};
     EXPECT(platform_window_get_native(NULL, &native), ENGINE_RESULT_INVALID_ARGUMENT);
-    CHECK(native.type == 0, "native handle written on INVALID_ARGUMENT");
+    CHECK(native.type == 77 && native.window_id == 5, "native handle written on INVALID_ARGUMENT");
 
     PlatformEvent event = {77, NULL, 1, 2};
     CHECK(!platform_next_event(NULL, &event), "next_event(NULL) returned true");
