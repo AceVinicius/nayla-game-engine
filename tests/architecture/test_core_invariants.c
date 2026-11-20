@@ -118,13 +118,14 @@ static const Check checks[] = {
      " | grep -vE '^(u?int(8|16|32|64)|size|ptrdiff|max_align|intptr|uintptr)_t$'"},
 
     /* PLAT-INV-5: the only Platform API declarations without a Platform or
-     * PlatformWindow pointer parameter are the four stateless functions. Only
-     * column-0 lines are declarations; a multi-line declaration keeps its first
-     * parameter, the Platform pointer, on its first line. */
+     * PlatformWindow pointer parameter are the four stateless functions.
+     * Column-0 lines are declarations, pointer-returning ones included; sed
+     * drops everything up to the "(" so only the parameter list is checked.
+     * A multi-line declaration keeps its first parameter on its first line. */
     {"PLAT-INV-5: only the four stateless functions lack a Platform pointer",
-     "grep -E '^[A-Za-z_][A-Za-z0-9_ ]*[[:space:]]platform_[a-z0-9_]+\\(' " API_H
-     " | grep -vE 'Platform(Window)?[[:space:]]*\\*'"
-     " | grep -vE 'platform_(time_now_ns|thread_current_id|log_time_source|log_thread_id_source)\\('"},
+     "grep -E '^[A-Za-z_][A-Za-z0-9_ *]*[[:space:]*]platform_[a-z0-9_]+\\(' " API_H
+     " | grep -vE 'platform_(time_now_ns|thread_current_id|log_time_source|log_thread_id_source)\\('"
+     " | sed 's/^[^(]*(//' | grep -E -v 'Platform(Window)?[[:space:]]*\\*'"},
 };
 
 int main(void) {
