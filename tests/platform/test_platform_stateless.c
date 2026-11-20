@@ -8,8 +8,6 @@
 
 #include <stdatomic.h>
 #include <stdint.h>
-#include <stdio.h>
-#include <string.h>
 
 #include "src/platform/api.h"
 #include "src/core/logging.h"
@@ -107,7 +105,6 @@ static int test_time_busy_loop_observes_increase(void) {
         }
     }
     CHECK(0, "clock did not advance within %u calls (frozen clock)", BUSY_LOOP_LIMIT);
-    return 1;
 }
 
 /* Happens-before edge: read in A, thread B started and joined, read in A again.
@@ -171,8 +168,7 @@ static int test_thread_id_nonzero_and_stable(void) {
     CHECK(main_first != ENGINE_LOG_THREAD_UNKNOWN, "calling thread id is 0");
     CHECK(main_first == main_second, "id changed between calls on one thread");
 
-    Rendezvous r;
-    memset(&r, 0, sizeof r);
+    Rendezvous r = {0};
     TestThread thread;
     CHECK(test_thread_start(&thread, rendezvous_body, &r) == 0, "could not start thread");
     int ready = wait_for_flag(&r.ready);
@@ -187,13 +183,12 @@ static int test_thread_id_nonzero_and_stable(void) {
 
 static int test_thread_id_distinct_between_live_threads(void) {
     uint64_t main_id = platform_thread_current_id();
-    Rendezvous r;
-    memset(&r, 0, sizeof r);
+    Rendezvous r = {0};
     TestThread thread;
     CHECK(test_thread_start(&thread, rendezvous_body, &r) == 0, "could not start thread");
     int ready = wait_for_flag(&r.ready);
-    /* The helper is still alive (blocked on release) while both ids are compared. */
-    uint64_t helper_id = r.first_id;
+    /* first_id is published before ready is set, so it is read only once ready is observed. */
+    uint64_t helper_id = ready ? r.first_id : ENGINE_LOG_THREAD_UNKNOWN;
     atomic_store(&r.release, 1);
     test_thread_join(&thread);   /* join before any check: r lives on this frame */
 
@@ -231,10 +226,15 @@ static int test_log_adapters_record_real_values_without_platform(void) {
     CHECK_OK(engine_log_set_context_source(&logger, platform_log_time_source,
                                            platform_log_thread_id_source, &junk));
 
+    uint64_t before = platform_time_now_ns();
     engine_log_write(&logger, ENGINE_LOG_LEVEL_INFO, "Platform", NULL, 0, "stateless probe");
+    uint64_t after = platform_time_now_ns();
 
     CHECK(cap.count == 1, "expected one delivered record, got %zu", cap.count);
     CHECK(cap.timestamp_ns != ENGINE_LOG_TIMESTAMP_UNKNOWN, "record timestamp is UNKNOWN");
+    CHECK(before <= cap.timestamp_ns && cap.timestamp_ns <= after,
+          "record timestamp %llu outside [%llu, %llu]", (unsigned long long)cap.timestamp_ns,
+          (unsigned long long)before, (unsigned long long)after);
     CHECK(cap.thread_id != ENGINE_LOG_THREAD_UNKNOWN, "record thread id is UNKNOWN");
     CHECK(cap.thread_id == platform_thread_current_id(), "record thread id is not the calling thread");
 
@@ -245,10 +245,15 @@ static int test_log_adapters_record_real_values_without_platform(void) {
 static int test_log_adapters_ignore_user_data(void) {
     static int junk;
     void *junk_ptr = &junk;
+    uint64_t before = platform_time_now_ns();
     uint64_t time_value = platform_log_time_source(junk_ptr);
     uint64_t thread_value = platform_log_thread_id_source(junk_ptr);
+    uint64_t after = platform_time_now_ns();
 
     CHECK(time_value != ENGINE_LOG_TIMESTAMP_UNKNOWN, "time adapter returned UNKNOWN");
+    CHECK(before <= time_value && time_value <= after,
+          "time adapter %llu outside [%llu, %llu]", (unsigned long long)time_value,
+          (unsigned long long)before, (unsigned long long)after);
     CHECK(thread_value != ENGINE_LOG_THREAD_UNKNOWN, "thread adapter returned UNKNOWN");
     CHECK(platform_log_time_source(NULL) != ENGINE_LOG_TIMESTAMP_UNKNOWN,
           "time adapter with NULL user_data returned UNKNOWN");
