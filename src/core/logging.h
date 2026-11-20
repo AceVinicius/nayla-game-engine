@@ -184,7 +184,8 @@ typedef struct EngineLogger {
 
 /* Initialize a logger.
  * CORE-LOG-080: sets level, empties sink table, clears context sources.
- * CORE-LOG-005: NULL logger is accepted and is a no-op.
+ * Returns ENGINE_RESULT_INVALID_ARGUMENT for a NULL logger or a level
+ * outside [TRACE, OFF] (CORE-LOG-080).
  * CORE-LOG-008: returns no allocation error (none can occur).
  * EXTERNALLY_SYNCHRONIZED: must not run concurrently with any logging.
  */
@@ -230,7 +231,8 @@ ENGINE_NODISCARD EngineResult engine_log_set_level(EngineLogger *logger,
                                                    EngineLogLevel min_level);
 
 /* Get the logger's current runtime minimum level.
- * THREAD_SAFE: reads only immutable state after init.
+ * THREAD_SAFE against other reads. Mutators such as engine_log_set_level
+ * must not run concurrently with it (CORE-LOG-072).
  */
 EngineLogLevel engine_log_get_level(const EngineLogger *logger);
 
