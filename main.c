@@ -3,6 +3,11 @@
 #include "src/core/logging.h"
 #include "src/platform/api.h"
 
+/* Loop wait timeouts (#45). TICK_NS paces a presenting window at about 60 Hz;
+ * IDLE_NS applies while the framebuffer is 0x0 (minimized). */
+#define TICK_NS 16700000u
+#define IDLE_NS 100000000u
+
 /* Lifecycle follows PLATFORM-083 exactly:
  *   engine_log_init -> add sink -> set context source (PLATFORM-026)
  *   -> engine_init -> platform_init -> platform_window_create -> loop
@@ -73,7 +78,16 @@ int main(void) {
 
     ENGINE_LOG_INFO(&logger, "App", "Window created; running the event loop");
     for (;;) {
-        platform_pump_events(platform);
+        /* Pacing (#45, PLATFORM-055): a minimized window reports 0x0 and never
+         * presents, so nothing else would block the loop; it waits longer. */
+        uint32_t fb_width = 0;
+        uint32_t fb_height = 0;
+        err = platform_window_get_framebuffer_size(window, &fb_width, &fb_height);
+        if (err != ENGINE_RESULT_SUCCESS) {
+            ENGINE_LOG_ERROR(&logger, "App", "Failed to query framebuffer size (%s)", engine_result_name(err));
+            break;
+        }
+        platform_wait_events(platform, (fb_width == 0 || fb_height == 0) ? IDLE_NS : TICK_NS);
         PlatformEvent event;
         while (platform_next_event(platform, &event)) {
             if (event.type == PLATFORM_EVENT_WINDOW_FRAMEBUFFER_RESIZED) {

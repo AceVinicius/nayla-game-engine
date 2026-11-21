@@ -144,6 +144,10 @@ typedef struct PlatformEvent {
 } PlatformEvent;
 
 void platform_pump_events(Platform *platform);
+/* Blocks until an OS event arrives or timeout_ns elapses, then pumps (PLATFORM-055).
+ * timeout_ns 0 is a pump; UINT64_MAX waits without limit; a non-zero timeout is
+ * rounded up, never to 0 (PLATFORM-056). NULL returns at once (PLAT-INV-13). */
+void platform_wait_events(Platform *platform, uint64_t timeout_ns);
 bool platform_next_event(Platform *platform, PlatformEvent *out_event);
 
 #endif /* PLATFORM_API_H */
