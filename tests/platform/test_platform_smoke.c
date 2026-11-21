@@ -68,10 +68,20 @@ static int test_platform_init_rules(void) {
     EXPECT(platform_init(&p, &broken, NULL), ENGINE_RESULT_INVALID_ARGUMENT);
     CHECK(p == NULL, "platform_init left *out_platform non-NULL on INVALID_ARGUMENT");
 
-    /* NULL allocator resolves to the default and the probe reports NOT_SUPPORTED. */
+    /* NULL allocator resolves to the default. The window-system probe decides the
+     * result: SUCCESS where a display is reachable (macOS), NOT_SUPPORTED where
+     * none is (Linux and Win32 stubs, headless hosts). */
     p = (Platform *)&sentinel;
-    EXPECT(platform_init(&p, NULL, NULL), ENGINE_RESULT_NOT_SUPPORTED);
-    CHECK(p == NULL, "platform_init left *out_platform non-NULL on NOT_SUPPORTED");
+    EngineResult result = platform_init(&p, NULL, NULL);
+    CHECK(result == ENGINE_RESULT_SUCCESS || result == ENGINE_RESULT_NOT_SUPPORTED,
+          "platform_init(NULL allocator) returned %s", engine_result_name(result));
+    if (result == ENGINE_RESULT_SUCCESS) {
+        CHECK(p != NULL, "platform_init succeeded but left *out_platform NULL");
+        platform_shutdown(p);
+    } else {
+        CHECK(p == NULL, "platform_init left *out_platform non-NULL on failure");
+        fprintf(stderr, "skip: no window system reachable; platform_init returned NOT_SUPPORTED\n");
+    }
     return 0;
 }
 
@@ -106,9 +116,29 @@ static int test_window_create_rules(void) {
     EXPECT(platform_window_create(&w, platform, &no_free, &desc), ENGINE_RESULT_INVALID_ARGUMENT);
     CHECK(w == NULL, "bad allocator left *out_window non-NULL");
 
-    w = poison;
-    EXPECT(platform_window_create(&w, platform, NULL, &desc), ENGINE_RESULT_NOT_SUPPORTED);
-    CHECK(w == NULL, "platform_window_create left *out_window non-NULL");
+    /* A window needs a real Platform, which the fake pointer above is not. Where
+     * no window system is reachable, init fails first and there is nothing to test. */
+    Platform *real = NULL;
+    EngineResult init = platform_init(&real, NULL, NULL);
+    CHECK(init == ENGINE_RESULT_SUCCESS || init == ENGINE_RESULT_NOT_SUPPORTED,
+          "platform_init returned %s", engine_result_name(init));
+    if (init == ENGINE_RESULT_SUCCESS) {
+        w = poison;
+        EXPECT(platform_window_create(&w, real, NULL, &desc), ENGINE_RESULT_SUCCESS);
+        CHECK(w != NULL, "platform_window_create succeeded but left *out_window NULL");
+        platform_window_destroy(w);
+        platform_shutdown(real);
+    } else {
+        fprintf(stderr, "skip: no window system reachable; window create checked only for validation\n");
+#if !defined(__APPLE__)
+        /* The stub never dereferences the Platform, so the sentinel is safe here.
+         * The macOS backend dereferences it after creating an NSWindow, so the
+         * NOT_SUPPORTED check is not run with the sentinel on macOS. */
+        w = poison;
+        EXPECT(platform_window_create(&w, platform, NULL, &desc), ENGINE_RESULT_NOT_SUPPORTED);
+        CHECK(w == NULL, "platform_window_create left *out_window non-NULL");
+#endif
+    }
     return 0;
 }
 

@@ -1,7 +1,7 @@
 /* macOS time and thread identity (PLATFORM-020, PLATFORM-023). Stateless: no
  * file-scope state, no caching (PLATFORM-024, PLATFORM-090). Plain C is enough
- * for these two functions (ADR-011); the Objective-C translation units arrive
- * with the window task (#32). */
+ * for these two functions (ADR-011); the window and event code is Objective-C
+ * in platform_macos.m. */
 
 #include <stdint.h>
 #include <time.h>

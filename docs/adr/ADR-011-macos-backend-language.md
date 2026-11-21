@@ -33,6 +33,8 @@ The choice affects review cost, how PLATFORM-044's release order ("OS handles re
 
 ## Decision
 
+> Amended during #32 implementation: the event-lookup bullet in Decision 4 now describes what the code does (no event-window lookup in the pump).
+
 1. **Language.** `src/platform/macos/` consists of Objective-C translation units (`.m`) compiled with **manual retain/release**. The target sets `-fno-objc-arc` explicitly, so a generator default (for example Xcode's `CLANG_ENABLE_OBJC_ARC`) cannot change it. No `.c` file in this directory calls `objc_msgSend`.
 2. **Ownership (PLATFORM-031, PLATFORM-044).**
    - `Platform` and `PlatformWindow` are C structs allocated and freed only through their stored `EngineAllocator`. Objective-C objects (`NSWindow`, delegates) are OS-owned memory created with `+alloc`/`-init` and released with `-release`. They never come from the `EngineAllocator`, and PLAT-INV-9's leak counts do not include them.
@@ -42,7 +44,7 @@ The choice affects review cost, how PLATFORM-044's release order ("OS handles re
 3. **Header isolation.** Nothing Objective-C appears in `api.h` or `native.h` (PLATFORM-094). The `Platform`/`PlatformWindow` struct definitions, the delegate classes, and any backend-private header live under `src/platform/macos/`. A backend-private header that names an Objective-C type is included only by `.m` files in that directory. `platform_window_get_native` returns the `NSView *` as `(PlatformNativeObject *)view`, a plain cast with no transfer of ownership (PLATFORM-072).
 4. **Per-window lookup without file-scope state (PLATFORM-090, PLAT-INV-14).**
    - Each `PlatformWindow` owns one `NaylaWindowDelegate` (an `NSObject <NSWindowDelegate>`) whose only ivar is a non-owning `PlatformWindow *` back pointer. The delegate is set on its `NSWindow`, and AppKit callbacks (`windowShouldClose:`, `windowDidResize:`, focus, backing-scale changes) reach the window through `self->window`.
-   - `NSEvent`s handled in `platform_pump_events` find their window through `[[event window] delegate]`, which leads to the same back pointer. That delegate may belong to a window the engine does not own (AppKit panels, menus), so the backend uses the back pointer only after `[delegate isKindOfClass:[NaylaWindowDelegate class]]` succeeds, and otherwise forwards the event to AppKit untouched. There is no global table.
+   - `platform_pump_events` forwards every `NSEvent` to AppKit untouched; it does not look up event windows or their delegates. Window state reaches the engine only through each `NaylaWindowDelegate`'s own callbacks, which use that delegate's own back pointer, so events for windows the engine does not own (AppKit panels, menus) never reach engine code. After the pump, a sync pass over the `Platform`'s window list catches size changes whose notification has not yet arrived. There is no global table.
    - The `Platform` owns an application delegate in the same way (back pointer to `Platform`), installs it in `platform_init`, and in `platform_shutdown` sets `[NSApp setDelegate:nil]` and releases it. A later `platform_init` installs a fresh one, while the `NSApp` singleton itself persists (PLATFORM-036).
    - Class declarations and `@implementation` blocks are not file-scope variables. `static` mutable variables stay forbidden in `.m` files exactly as in `.c` files. Class names carry the `Nayla` prefix because the Objective-C class namespace is process-wide.
 5. **Main thread (PLATFORM-080, PLATFORM-082).**

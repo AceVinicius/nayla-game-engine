@@ -13,43 +13,38 @@ target_link_libraries(engine_platform_api INTERFACE engine_foundation)
 # attach to an INTERFACE target. api.h and native.h are enforced by the
 # PLAT-INV-3(a) and PLAT-INV-3(b) rows in tests/architecture/test_core_invariants.c.
 
-# PLATFORM-092: the backend is chosen once per configure. The default is the
-# host OS; an unknown host leaves the default empty and fails the check below.
-if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
-  set(_nayla_platform_default win32)
-elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-  set(_nayla_platform_default macos)
-elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-  set(_nayla_platform_default linux)
-else()
-  set(_nayla_platform_default "")
-endif()
-
-set(NAYLA_PLATFORM_BACKEND "${_nayla_platform_default}" CACHE STRING
-    "Platform backend: win32, macos or linux (default: the host OS)")
-set_property(CACHE NAYLA_PLATFORM_BACKEND PROPERTY STRINGS win32 macos linux)
-
-set(_nayla_platform_known win32 macos linux)
-if(NOT NAYLA_PLATFORM_BACKEND IN_LIST _nayla_platform_known)
-  message(FATAL_ERROR "NAYLA_PLATFORM_BACKEND='${NAYLA_PLATFORM_BACKEND}' is not one of: win32, macos, linux")
-endif()
-
+# PLATFORM-092: the backend itself is selected in the root CMakeLists.txt.
 # Only the selected backend exists. Its directory is the only per-OS difference.
 set(_nayla_backend_target engine_platform_${NAYLA_PLATFORM_BACKEND})
 set(_nayla_backend_dir ${CMAKE_CURRENT_SOURCE_DIR}/${NAYLA_PLATFORM_BACKEND})
 set(_nayla_common_dir ${CMAKE_CURRENT_SOURCE_DIR}/common)
 
-# Shared OS-independent code (adapters, tick conversion, the stub lifecycle)
+# Shared OS-independent code (adapters, tick conversion, allocator resolution)
 # is compiled into every backend; each backend supplies its own services.c.
-add_library(${_nayla_backend_target} STATIC
+set(_nayla_backend_sources
   ${_nayla_common_dir}/platform_common.c
   ${_nayla_backend_dir}/services.c
 )
+if(NAYLA_PLATFORM_BACKEND STREQUAL "macos")
+  list(APPEND _nayla_backend_sources ${_nayla_backend_dir}/platform_macos.m)
+else()
+  # win32 and linux have no window system yet: they share the stub lifecycle.
+  list(APPEND _nayla_backend_sources ${_nayla_common_dir}/platform_stub.c)
+endif()
+
+add_library(${_nayla_backend_target} STATIC ${_nayla_backend_sources})
 add_library(engine_platform ALIAS ${_nayla_backend_target})
 
 target_link_libraries(${_nayla_backend_target} PUBLIC engine_platform_api engine_foundation)
 
 target_compile_options(${_nayla_backend_target} PRIVATE -Wall -Wextra -Wpedantic)
+
+if(NAYLA_PLATFORM_BACKEND STREQUAL "macos")
+  # ADR-011 Decision 1: manual retain/release, set explicitly so a generator
+  # default (Xcode's CLANG_ENABLE_OBJC_ARC) cannot switch it on.
+  target_compile_options(${_nayla_backend_target} PRIVATE $<$<COMPILE_LANGUAGE:OBJC>:-fno-objc-arc>)
+  target_link_libraries(${_nayla_backend_target} PRIVATE "-framework AppKit")
+endif()
 
 # PLAT-INV-3(c) and the foundation rules (no direct allocation, no direct
 # output), with no exemption, on EVERY backend directory and the shared code,
