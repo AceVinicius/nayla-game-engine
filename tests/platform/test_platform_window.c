@@ -168,16 +168,26 @@ static int with_platform(PlatformBody body) {
     return rc;
 }
 
-/* Runs body with a live window, then destroys it whatever body returned. */
+/* Runs body with a live Platform and window, then destroys the window and shuts
+ * the Platform down whatever body returned. */
 typedef int (*WindowBody)(Platform *platform, PlatformWindow *window);
 
-static int with_window(Platform *platform, const PlatformWindowDesc *desc, WindowBody body) {
+static int with_platform_window(const PlatformWindowDesc *desc, WindowBody body) {
+    Platform *platform = NULL;
+    EngineResult pr = platform_init(&platform, NULL, NULL);
+    CHECK(pr == ENGINE_RESULT_SUCCESS && platform != NULL, "platform_init returned %s",
+          engine_result_name(pr));
     PlatformWindow *window = NULL;
-    EngineResult r = platform_window_create(&window, platform, NULL, desc);
-    CHECK(r == ENGINE_RESULT_SUCCESS && window != NULL, "platform_window_create returned %s",
-          engine_result_name(r));
-    int rc = body(platform, window);
-    platform_window_destroy(window);
+    EngineResult wr = platform_window_create(&window, platform, NULL, desc);
+    int rc = 0;
+    if (wr == ENGINE_RESULT_SUCCESS && window != NULL) {
+        rc = body(platform, window);
+        platform_window_destroy(window);
+    } else {
+        fprintf(stderr, "✗ platform_window_create returned %s\n", engine_result_name(wr));
+        rc = 1;
+    }
+    platform_shutdown(platform);
     return rc;
 }
 
@@ -221,10 +231,26 @@ static int test_init_oom_with_always_null_allocator(void) {
     return 0;
 }
 
-/* One init, one window, destroy, shutdown, all through the tracked allocator. */
-static int leak_cycle(const EngineAllocator *allocator) {
+/* Capture-sink logger (PLATFORM-100): counts every record and the WARN-or-worse
+ * ones. */
+typedef struct {
+    size_t total;
+    size_t warn_or_worse;
+} LogCount;
+
+static void count_write(const EngineLogSink *sink, const EngineLogRecord *record) {
+    LogCount *c = sink->user_data;
+    c->total++;
+    if (record->level >= ENGINE_LOG_LEVEL_WARN) {
+        c->warn_or_worse++;
+    }
+}
+
+/* One init, one window, destroy, shutdown, through the tracked allocator and
+ * the capture logger. */
+static int leak_cycle(const EngineAllocator *allocator, const EngineLogger *logger) {
     Platform *platform = NULL;
-    EngineResult pr = platform_init(&platform, allocator, NULL);
+    EngineResult pr = platform_init(&platform, allocator, logger);
     CHECK(pr == ENGINE_RESULT_SUCCESS && platform != NULL, "platform_init returned %s",
           engine_result_name(pr));
 
@@ -241,21 +267,39 @@ static int leak_cycle(const EngineAllocator *allocator) {
 }
 
 /* PLAT-INV-9: equal alloc/free counts after each cycle, across two cycles
- * (PLATFORM-036 sequential re-initialization). */
+ * (PLATFORM-036 sequential re-initialization). Each cycle must also allocate
+ * through the injected allocator, so the per-cycle growth check is what proves
+ * cycle 2 ran through it; the cumulative count cannot show that. The clean path
+ * must log no WARN or ERROR records. */
 static int test_leaks_balanced_across_two_cycles(void) {
     Tracker tracker = {0};
     EngineAllocator allocator = {.alloc = tracked_alloc, .free = tracked_free, .user_data = &tracker};
+    LogCount logs = {0};
+    EngineLogSink sink = {.write = count_write, .user_data = &logs, .min_level = ENGINE_LOG_LEVEL_TRACE};
+    EngineLogger logger;
+    CHECK_OK(engine_log_init(&logger, ENGINE_LOG_LEVEL_TRACE));
+    CHECK_OK(engine_log_add_sink(&logger, &sink));
+
+    /* Control: the capture sink receives a record, so a zero count below means
+     * "clean", not "not wired". */
+    engine_log_write(&logger, ENGINE_LOG_LEVEL_WARN, "Platform", NULL, 0, "capture control");
+    CHECK(logs.warn_or_worse == 1, "capture sink did not receive the control record");
+    logs = (LogCount){0};
 
     for (int cycle = 1; cycle <= 2; cycle++) {
-        CHECK(leak_cycle(&allocator) == 0, "cycle %d failed", cycle);
-        CHECK(tracker.allocs > 0, "cycle %d: the injected allocator was never used", cycle);
+        int allocs_before = tracker.allocs;
+        CHECK(leak_cycle(&allocator, &logger) == 0, "cycle %d failed", cycle);
+        CHECK(tracker.allocs > allocs_before, "cycle %d: the injected allocator was not used", cycle);
         CHECK(tracker.allocs == tracker.frees, "cycle %d: %d allocations but %d frees", cycle,
               tracker.allocs, tracker.frees);
         CHECK(tracker.foreign_frees == 0, "cycle %d: %d free(s) of a pointer not live", cycle,
               tracker.foreign_frees);
         CHECK(tracker.overflow == 0, "cycle %d: more than %d blocks live at once", cycle,
               TRACK_CAPACITY);
+        CHECK(logs.warn_or_worse == 0, "cycle %d: %zu WARN-or-worse record(s) on the clean path",
+              cycle, logs.warn_or_worse);
     }
+    engine_log_shutdown(&logger);
     return 0;
 }
 
@@ -389,12 +433,8 @@ static int check_invalid_descs(Platform *platform) {
     return 0;
 }
 
-static int body_invalid_descs(Platform *platform) {
-    return check_invalid_descs(platform);
-}
-
 static int test_window_create_rejects_invalid_descs(void) {
-    return with_platform(body_invalid_descs);
+    return with_platform(check_invalid_descs);
 }
 
 /* ---- PLAT-INV-11: fresh window state and native record ----------------------- */
@@ -415,23 +455,16 @@ static int check_fresh_window_state(Platform *platform, PlatformWindow *window) 
     return 0;
 }
 
-static int body_fresh_window_state(Platform *platform, PlatformWindow *window) {
-    return check_fresh_window_state(platform, window);
-}
-
-static int body_fresh_window_state_platform(Platform *platform) {
-    PlatformWindowDesc desc = {window_title, 320, 240, 0};
-    return with_window(platform, &desc, body_fresh_window_state);
-}
-
 static int test_fresh_window_state(void) {
-    return with_platform(body_fresh_window_state_platform);
+    PlatformWindowDesc desc = {window_title, 320, 240, 0};
+    return with_platform_window(&desc, check_fresh_window_state);
 }
 
 /* PLAT-INV-11: the native record matches the table row for its type. The
  * record is poisoned first, so a field the backend never writes cannot pass as
  * NULL/0 by accident. */
-static int check_native_record(const PlatformWindow *window) {
+static int check_native_record(Platform *platform, PlatformWindow *window) {
+    (void)platform;
     PlatformNativeWindow native;
     memset(&native, POISON_BYTE, sizeof native);
     EngineResult r = platform_window_get_native(window, &native);
@@ -450,18 +483,9 @@ static int check_native_record(const PlatformWindow *window) {
     return 0;
 }
 
-static int body_native_record(Platform *platform, PlatformWindow *window) {
-    (void)platform;
-    return check_native_record(window);
-}
-
-static int body_native_record_platform(Platform *platform) {
-    PlatformWindowDesc desc = {window_title, 320, 240, 0};
-    return with_window(platform, &desc, body_native_record);
-}
-
 static int test_native_record_matches_table(void) {
-    return with_platform(body_native_record_platform);
+    PlatformWindowDesc desc = {window_title, 320, 240, 0};
+    return with_platform_window(&desc, check_native_record);
 }
 
 /* ---- PLAT-INV-12: drain on an empty queue, purge on destroy ------------------ */
