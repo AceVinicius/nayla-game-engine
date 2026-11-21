@@ -39,8 +39,15 @@ jobs:
         run: cmake --build build
 
       # Includes the architecture tests (no OS/GPU includes, no globals, ...).
+      # Ubuntu declares a headless host (PLATFORM-101): contract/platform_window skips
+      # there. macOS does not, so a missing window session fails it. The -V line
+      # prints the test's output, which is how the skip reason reaches the log.
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        env:
+          NAYLA_TEST_NO_DISPLAY: ${{ startsWith(matrix.os, 'ubuntu') && '1' || '' }}
+        run: |
+          ctest --test-dir build -R contract/platform_window -V
+          ctest --test-dir build --output-on-failure
 
   # Catches what warnings cannot: out-of-bounds, misaligned access, signed
   # overflow, leaks (the allocator does pointer/alignment arithmetic).
@@ -65,5 +72,11 @@ jobs:
       - name: Build
         run: cmake --build build
 
+      # Headless declared (PLATFORM-101): this job runs on ubuntu-latest. The -V line
+      # prints the skip reason of contract/platform_window.
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        env:
+          NAYLA_TEST_NO_DISPLAY: "1"
+        run: |
+          ctest --test-dir build -R contract/platform_window -V
+          ctest --test-dir build --output-on-failure
