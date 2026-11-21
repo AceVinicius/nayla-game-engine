@@ -248,22 +248,33 @@ static void count_write(const EngineLogSink *sink, const EngineLogRecord *record
 
 /* One init, one window, destroy, shutdown, through the tracked allocator and
  * the capture logger. */
-static int leak_cycle(const EngineAllocator *allocator, const EngineLogger *logger) {
+/* What one cycle observed. Validity is recorded before anything is released, so
+ * the checks never read a pointer after it is freed. */
+typedef struct {
+    EngineResult platform_result;
+    bool         window_created;   /* result SUCCESS and a non-NULL window */
+    int          window_allocs;    /* tracked allocations made by window_create alone */
+} CycleReport;
+
+static void leak_cycle(const EngineAllocator *allocator, const EngineLogger *logger,
+                       const Tracker *tracker, CycleReport *report) {
+    memset(report, 0, sizeof *report);
     Platform *platform = NULL;
-    EngineResult pr = platform_init(&platform, allocator, logger);
-    CHECK(pr == ENGINE_RESULT_SUCCESS && platform != NULL, "platform_init returned %s",
-          engine_result_name(pr));
+    report->platform_result = platform_init(&platform, allocator, logger);
+    if (report->platform_result != ENGINE_RESULT_SUCCESS || platform == NULL) {
+        return;
+    }
 
     PlatformWindowDesc desc = {window_title, 320, 240, 0};
     PlatformWindow *window = NULL;
+    int allocs_before_create = tracker->allocs;
     EngineResult wr = platform_window_create(&window, platform, allocator, &desc);
+    report->window_allocs = tracker->allocs - allocs_before_create;
+    report->window_created = wr == ENGINE_RESULT_SUCCESS && window != NULL;
     if (window != NULL) {
         platform_window_destroy(window);
     }
     platform_shutdown(platform);
-    CHECK(wr == ENGINE_RESULT_SUCCESS && window != NULL, "platform_window_create returned %s",
-          engine_result_name(wr));
-    return 0;
 }
 
 /* PLAT-INV-9: equal alloc/free counts after each cycle, across two cycles
@@ -288,7 +299,13 @@ static int test_leaks_balanced_across_two_cycles(void) {
 
     for (int cycle = 1; cycle <= 2; cycle++) {
         int allocs_before = tracker.allocs;
-        CHECK(leak_cycle(&allocator, &logger) == 0, "cycle %d failed", cycle);
+        CycleReport report;
+        leak_cycle(&allocator, &logger, &tracker, &report);
+        CHECK(report.platform_result == ENGINE_RESULT_SUCCESS, "cycle %d: platform_init returned %s",
+              cycle, engine_result_name(report.platform_result));
+        CHECK(report.window_created, "cycle %d: platform_window_create did not create a window", cycle);
+        CHECK(report.window_allocs > 0, "cycle %d: window_create made no allocation through the injected allocator",
+              cycle);
         CHECK(tracker.allocs > allocs_before, "cycle %d: the injected allocator was not used", cycle);
         CHECK(tracker.allocs == tracker.frees, "cycle %d: %d allocations but %d frees", cycle,
               tracker.allocs, tracker.frees);
@@ -465,11 +482,22 @@ static int test_fresh_window_state(void) {
  * NULL/0 by accident. */
 static int check_native_record(Platform *platform, PlatformWindow *window) {
     (void)platform;
-    PlatformNativeWindow native;
-    memset(&native, POISON_BYTE, sizeof native);
+    /* Two queries from different initial contents, all-zero and poisoned. A
+     * getter that leaves a field unwritten returns that field's initial value,
+     * so the two results differ and the check fails. Only then is the row
+     * checked, against the all-zero result. */
+    PlatformNativeWindow native = {0};
+    PlatformNativeWindow poisoned;
+    memset(&poisoned, POISON_BYTE, sizeof poisoned);
     EngineResult r = platform_window_get_native(window, &native);
+    EngineResult rp = platform_window_get_native(window, &poisoned);
     CHECK(r == ENGINE_RESULT_SUCCESS, "platform_window_get_native returned %s",
           engine_result_name(r));
+    CHECK(rp == ENGINE_RESULT_SUCCESS, "platform_window_get_native (poisoned) returned %s",
+          engine_result_name(rp));
+    CHECK(native.type == poisoned.type && native.display == poisoned.display &&
+              native.window == poisoned.window && native.window_id == poisoned.window_id,
+          "native record depends on its initial contents: a field was not written");
     CHECK(native.type != PLATFORM_NATIVE_WINDOW_NONE, "native type is NONE");
 
     const NativeRow *row = native_row_for(native.type);
@@ -500,11 +528,15 @@ static int body_empty_drain(Platform *platform) {
         CHECK(++drained <= DRAIN_LIMIT, "the queue never empties");
     }
 
+    /* Poison the whole object, padding included, and snapshot its bytes with
+     * memcpy: struct assignment need not copy padding, so memcmp on a copy made
+     * by assignment would compare indeterminate bytes. */
     PlatformEvent event;
     memset(&event, POISON_BYTE, sizeof event);
-    PlatformEvent before = event;
+    unsigned char before[sizeof event];
+    memcpy(before, &event, sizeof event);
     CHECK(platform_next_event(platform, &event) == false, "drain on an empty queue returned true");
-    CHECK(memcmp(&event, &before, sizeof event) == 0, "drain on an empty queue wrote *out_event");
+    CHECK(memcmp(&event, before, sizeof event) == 0, "drain on an empty queue wrote *out_event");
     CHECK(platform_next_event(platform, NULL) == false, "drain with NULL out_event returned true");
     return 0;
 }
@@ -563,7 +595,9 @@ int main(void) {
     /* Probe once: decides skip versus fail before any Platform-based check. */
     Platform *probe = NULL;
     EngineResult pr = platform_init(&probe, NULL, NULL);
-    if (pr == ENGINE_RESULT_SUCCESS && probe != NULL) {
+    /* Recorded before shutdown: probe is not read after it is released. */
+    bool probe_ok = pr == ENGINE_RESULT_SUCCESS && probe != NULL;
+    if (probe_ok) {
         platform_shutdown(probe);
     }
     if (pr == ENGINE_RESULT_NOT_SUPPORTED) {
@@ -576,7 +610,7 @@ int main(void) {
                         "(set " NO_DISPLAY_ENV "=1 only on a declared headless host)\n");
         return 1;
     }
-    if (pr != ENGINE_RESULT_SUCCESS || probe == NULL) {
+    if (!probe_ok) {
         fprintf(stderr, "✗ platform_init probe returned %s\n", engine_result_name(pr));
         return 1;
     }
