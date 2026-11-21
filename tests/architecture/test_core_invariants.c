@@ -11,8 +11,9 @@
 
 #if !defined(NAYLA_CORE_SRC_DIR) || !defined(NAYLA_RENDERER_SRC_DIR) || !defined(NAYLA_REPO_ROOT) || \
     !defined(NAYLA_PLATFORM_SRC_DIR) || !defined(NAYLA_GPU_SRC_DIR) || !defined(NAYLA_FORBIDDEN_INCLUDES) || \
-    !defined(NAYLA_FORBIDDEN_GPU_SDK_INCLUDES)
-# error "NAYLA_*_DIR / NAYLA_REPO_ROOT / NAYLA_FORBIDDEN_*INCLUDES must be defined by CMake (tests/architecture/CMakeLists.txt)"
+    !defined(NAYLA_FORBIDDEN_GPU_SDK_INCLUDES) || !defined(NAYLA_PLATFORM_SDK_INCLUDES) || \
+    !defined(NAYLA_PLATFORM_SDK_IMPORTS)
+# error "NAYLA_*_DIR / NAYLA_REPO_ROOT / NAYLA_*_INCLUDES / NAYLA_*_IMPORTS must be defined by CMake (tests/architecture/CMakeLists.txt)"
 #endif
 
 #define Q(path) "'" path "'"
@@ -23,6 +24,8 @@
 #define NATIVE_H Q(NAYLA_PLATFORM_SRC_DIR "/native.h")
 #define GPU_API_H Q(NAYLA_GPU_SRC_DIR "/api.h")
 #define PLAT_DIR Q(NAYLA_PLATFORM_SRC_DIR)
+#define PLAT_OS_DIR(os) Q(NAYLA_PLATFORM_SRC_DIR "/" os)
+#define PLAT_OS_DIRS PLAT_OS_DIR("win32") " " PLAT_OS_DIR("macos") " " PLAT_OS_DIR("linux")
 
 /* The shared PLAT-INV-3(b) list, the same file cmake/Common.cmake reads.
  * grep -i: the match is case-insensitive. */
@@ -70,6 +73,18 @@ static const Check checks[] = {
     NO_FORBIDDEN("platform native.h", NATIVE_H),
     NO_FORBIDDEN("gpu api.h", GPU_API_H),
     NO_GPU_SDK("core and renderer", BOTH),
+
+    /* PLAT-INV-3(c): the same lists forbid_platform_os_sdk reads at build time,
+     * over every OS backend directory whichever backend is selected. A missing
+     * directory makes grep exit 2, which counts as a pass, so it is guarded. */
+    LIST_GUARD("platform SDK includes", Q(NAYLA_PLATFORM_SDK_INCLUDES)),
+    LIST_GUARD("platform SDK imports", Q(NAYLA_PLATFORM_SDK_IMPORTS)),
+    {"guard: PLAT-INV-3(c) backend directories exist (win32, macos, linux)",
+     "for d in " PLAT_OS_DIRS "; do test -d \"$d\" || exit 0; done; exit 1"},
+    {"PLAT-INV-3(c): no GPU SDK include in platform OS backends",
+     "grep -rniE -f " Q(NAYLA_PLATFORM_SDK_INCLUDES) " " PLAT_OS_DIRS},
+    {"PLAT-INV-3(c): no GPU or presentation @import in platform OS backends",
+     "grep -rniE -f " Q(NAYLA_PLATFORM_SDK_IMPORTS) " " PLAT_OS_DIRS},
 
     {"ALLOC-INV-7: no direct allocation in core outside allocator.c",
      "grep -rE '" ALLOC_CALLS "' " CORE NOT_IN("allocator.c")},

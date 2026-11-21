@@ -10,6 +10,8 @@ target_compile_definitions(test_core_invariants PRIVATE
   NAYLA_REPO_ROOT="${CMAKE_SOURCE_DIR}"
   NAYLA_FORBIDDEN_INCLUDES="${CMAKE_SOURCE_DIR}/cmake/forbidden-includes.txt"
   NAYLA_FORBIDDEN_GPU_SDK_INCLUDES="${CMAKE_SOURCE_DIR}/cmake/forbidden-gpu-sdk-includes.txt"
+  NAYLA_PLATFORM_SDK_INCLUDES="${CMAKE_SOURCE_DIR}/cmake/forbidden-platform-sdk-includes.txt"
+  NAYLA_PLATFORM_SDK_IMPORTS="${CMAKE_SOURCE_DIR}/cmake/forbidden-platform-sdk-imports.txt"
 )
 
 add_test(NAME architecture/core_invariants COMMAND test_core_invariants)
