@@ -80,7 +80,7 @@ static const Check checks[] = {
     LIST_GUARD("platform SDK includes", Q(NAYLA_PLATFORM_SDK_INCLUDES)),
     LIST_GUARD("platform SDK imports", Q(NAYLA_PLATFORM_SDK_IMPORTS)),
     {"guard: PLAT-INV-3(c) backend directories exist (win32, macos, linux)",
-     "! { test -d " PLAT_OS_DIR("win32") " && test -d " PLAT_OS_DIR("macos") " && test -d " PLAT_OS_DIR("linux") "; }"},
+     "for d in " PLAT_OS_DIRS "; do test -d \"$d\" || exit 0; done; exit 1"},
     {"PLAT-INV-3(c): no GPU SDK include in platform OS backends",
      "grep -rniE -f " Q(NAYLA_PLATFORM_SDK_INCLUDES) " " PLAT_OS_DIRS},
     {"PLAT-INV-3(c): no GPU or presentation @import in platform OS backends",
