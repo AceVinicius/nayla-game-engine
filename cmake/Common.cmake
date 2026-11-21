@@ -27,9 +27,10 @@ _nayla_pattern_file_re(NAYLA_GPU_SDK_INCLUDE_RE "${CMAKE_SOURCE_DIR}/cmake/forbi
 
 # PLAT-INV-3(c): no GPU SDK token on a platform backend's include line (quoted or
 # angled, any position), and no @import of a GPU or presentation module
-# (submodules included, see ADR-011 Decision 6).
-set(NAYLA_PLATFORM_SDK_INCLUDE_RE "#[[:space:]]*(include|import).*(vulkan|d3d1|dxgi|metal/|quartzcore/)")
-set(NAYLA_PLATFORM_SDK_IMPORT_RE "@import[[:space:]]+(metal|quartzcore|metalkit|iosurface)\\b")
+# (submodules included, see ADR-011 Decision 6). The architecture test reads the
+# same files, so the build check and its rows cannot drift.
+_nayla_pattern_file_re(NAYLA_PLATFORM_SDK_INCLUDE_RE "${CMAKE_SOURCE_DIR}/cmake/forbidden-platform-sdk-includes.txt")
+_nayla_pattern_file_re(NAYLA_PLATFORM_SDK_IMPORT_RE "${CMAKE_SOURCE_DIR}/cmake/forbidden-platform-sdk-imports.txt")
 
 # Fail the build of `target` if the ERE `pattern` matches under `dir`, except in
 # files whose basename matches the ERE `exempt` (pass "" for no exemption).
