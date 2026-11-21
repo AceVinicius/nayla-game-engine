@@ -516,6 +516,50 @@ static int test_native_record_matches_table(void) {
     return with_platform_window(&desc, check_native_record);
 }
 
+/* ---- PLAT-INV-16: wait(0) and bounded short waits (PLATFORM-055/056) ---------- */
+
+/* Upper bounds only: early return is allowed (PLATFORM-055). A wait(0) that
+ * blocks fails the first bound. A wait that truly blocks forever hangs here and
+ * CTest's TIMEOUT fails the test in bounded time; on macOS a wait that merely
+ * ignores its timeout is still woken by AppKit's own events, so that case is
+ * only a manual check ("wakes promptly", PLAT-INV-16). */
+#define WAIT_ZERO_BOUND_NS 100000000u
+#define WAIT_SHORT_NS 20000000u
+#define WAIT_SHORT_BOUND_NS 2000000000u
+
+/* PLAT-INV-16 times a short wait "with no pending input": AppKit posts
+ * window-state events shortly after creation, and the pump time spent on them is
+ * outside PLATFORM-056's bound. Pumping for a while first drains them so the
+ * measured call is the blocking phase. */
+#define WAIT_SETTLE_NS 300000000u
+#define WAIT_SETTLE_STEP_NS 10000000u
+
+static int body_wait_bounds(Platform *platform, PlatformWindow *window) {
+    (void)window;
+    uint64_t settle_start = platform_time_now_ns();
+    while (platform_time_now_ns() - settle_start < WAIT_SETTLE_NS) {
+        platform_wait_events(platform, WAIT_SETTLE_STEP_NS);
+    }
+
+    uint64_t start = platform_time_now_ns();
+    platform_wait_events(platform, 0);
+    uint64_t elapsed = platform_time_now_ns() - start;
+    CHECK(elapsed < WAIT_ZERO_BOUND_NS, "wait(0) took %llu ns", (unsigned long long)elapsed);
+
+    start = platform_time_now_ns();
+    platform_wait_events(platform, WAIT_SHORT_NS);
+    elapsed = platform_time_now_ns() - start;
+    CHECK(elapsed < WAIT_SHORT_BOUND_NS, "wait(20 ms) took %llu ns", (unsigned long long)elapsed);
+    return 0;
+}
+
+static int test_wait_returns_within_bounds(void) {
+    static const PlatformWindowDesc desc = {
+        .title = window_title, .width = 320, .height = 240, .flags = PLATFORM_WINDOW_RESIZABLE,
+    };
+    return with_platform_window(&desc, body_wait_bounds);
+}
+
 /* ---- PLAT-INV-12: drain on an empty queue, purge on destroy ------------------ */
 
 /* The queue is emptied first, so the drain below is on an empty queue. The
@@ -624,6 +668,7 @@ int main(void) {
         {"PLAT-INV-11: native record matches its table row", test_native_record_matches_table},
         {"PLAT-INV-12: drain on empty queue writes nothing", test_empty_drain_writes_nothing},
         {"PLAT-INV-12: destroy purges the window's events", test_destroy_purges_window_events},
+        {"PLAT-INV-16: wait(0) and short wait return within bounds", test_wait_returns_within_bounds},
     };
     return RUN_TESTS(window);
 }

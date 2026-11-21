@@ -272,6 +272,20 @@ static int test_null_tolerance(void) {
     return 0;
 }
 
+/* PLAT-INV-13 (PLATFORM-055): a NULL wait returns at once for a non-zero timeout.
+ * The bound is far below the 1 s timeout, so a wait that sleeps fails here. */
+#define WAIT_TIMEOUT_NS 1000000000u
+#define WAIT_NULL_BOUND_NS 500000000u
+
+static int test_wait_null_returns_without_sleeping(void) {
+    uint64_t start = platform_time_now_ns();
+    platform_wait_events(NULL, WAIT_TIMEOUT_NS);
+    uint64_t elapsed = platform_time_now_ns() - start;
+    CHECK(elapsed < WAIT_NULL_BOUND_NS, "wait(NULL, 1 s) took %llu ns",
+          (unsigned long long)elapsed);
+    return 0;
+}
+
 int main(void) {
     static const TestCase tests[] = {
         {"time: 10^6 calls non-decreasing, never UINT64_MAX", test_time_monotonic_single_thread},
@@ -282,6 +296,7 @@ int main(void) {
         {"log adapters: real values with no Platform", test_log_adapters_record_real_values_without_platform},
         {"log adapters: ignore user_data", test_log_adapters_ignore_user_data},
         {"NULL tolerance", test_null_tolerance},
+        {"PLAT-INV-13: wait(NULL, 1 s) returns without sleeping", test_wait_null_returns_without_sleeping},
     };
     return RUN_TESTS(tests);
 }

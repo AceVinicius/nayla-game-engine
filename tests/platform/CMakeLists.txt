@@ -26,6 +26,8 @@ add_executable(test_platform_stateless test_platform_stateless.c)
 target_link_libraries(test_platform_stateless PRIVATE engine_platform Threads::Threads)
 target_compile_options(test_platform_stateless PRIVATE -Wall -Wextra -Wpedantic)
 add_test(NAME contract/platform_stateless COMMAND test_platform_stateless)
+# A wait(NULL, t) that sleeps must fail in bounded time, not hang CI (PLAT-INV-13).
+set_tests_properties(contract/platform_stateless PROPERTIES TIMEOUT 60)
 
 # Window conformance (PLATFORM-100..102; PLAT-INV-9..12). The test exits with
 # the CTest skip code only when platform_init reports NOT_SUPPORTED and
@@ -34,4 +36,4 @@ add_executable(test_platform_window test_platform_window.c)
 target_link_libraries(test_platform_window PRIVATE engine_platform)
 target_compile_options(test_platform_window PRIVATE -Wall -Wextra -Wpedantic)
 add_test(NAME contract/platform_window COMMAND test_platform_window)
-set_tests_properties(contract/platform_window PROPERTIES SKIP_RETURN_CODE 77)
+set_tests_properties(contract/platform_window PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 60)

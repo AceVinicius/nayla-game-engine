@@ -83,6 +83,12 @@ void platform_pump_events(Platform *platform) {
     (void)platform; /* PLATFORM-050: NULL is a no-op; the queue is always empty */
 }
 
+void platform_wait_events(Platform *platform, uint64_t timeout_ns) {
+    /* PLATFORM-055/PLAT-INV-13: no Platform exists, so the call returns at once. */
+    (void)platform;
+    (void)timeout_ns;
+}
+
 bool platform_next_event(Platform *platform, PlatformEvent *out_event) {
     /* PLATFORM-051: an empty queue, or a NULL argument, returns false and writes nothing. */
     (void)platform;
