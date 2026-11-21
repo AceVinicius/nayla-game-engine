@@ -39,7 +39,16 @@ jobs:
         run: cmake --build build
 
       # Includes the architecture tests (no OS/GPU includes, no globals, ...).
+      # The Ubuntu job declares a headless host (PLATFORM-101): contract/platform_window
+      # skips there. The macOS job does not, so a missing window session fails it.
+      - name: Test (headless declared)
+        if: startsWith(matrix.os, 'ubuntu')
+        env:
+          NAYLA_TEST_NO_DISPLAY: "1"
+        run: ctest --test-dir build --output-on-failure
+
       - name: Test
+        if: ${{ !startsWith(matrix.os, 'ubuntu') }}
         run: ctest --test-dir build --output-on-failure
 
   # Catches what warnings cannot: out-of-bounds, misaligned access, signed
@@ -65,5 +74,8 @@ jobs:
       - name: Build
         run: cmake --build build
 
+      # Headless declared (PLATFORM-101): this job runs on ubuntu-latest.
       - name: Test
+        env:
+          NAYLA_TEST_NO_DISPLAY: "1"
         run: ctest --test-dir build --output-on-failure
