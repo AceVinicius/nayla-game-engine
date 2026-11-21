@@ -2,6 +2,7 @@
 
 **Status:** Accepted (2026-11-21). Implemented and conformance-tested on macOS (PRs #37–#43); the Win32 backend (#34) and Linux windowing (ADR pending, #28) remain.
 **Date:** 2026-11-20
+**Amended:** 2026-11-21 (#45): `platform_wait_events` (PLATFORM-055/056, PLAT-INV-16).
 **Author:** `spec-writer`
 **Scope:** the Platform API contract for the first milestone (specs.md §47/§48): platform lifecycle, windows, events, monotonic time, thread identity, and the native-handle boundary to the future GPU surface. Binding on `src/platform/api.h`, `src/platform/native.h`, and every OS backend.
 **Supersedes:** specs.md §13 ("Platform Abstraction"), §14 ("Platform Interface"), §15 ("Platform Services"), §16 ("Platform Backend Contract"), §17 ("Native Handle Boundary"), the `platform_initialize`/`platform_shutdown` names in §37, and `platform_poll_events` in §38. specs.md remains a historical draft; where it disagrees with this document, **this document wins**. **Amends** `logging.md` CORE-LOG-082 (installing the context sources after platform initialization is no longer required, and records before that point need not carry the "unknown" sentinels, PLATFORM-026/083) and its edge case 12; both carry a note pointing here. **Widens** `result.md` §4's meaning of `ENGINE_RESULT_NOT_SUPPORTED` to OS-call failures (PLATFORM-034, issue #18); result.md carries a note.
@@ -28,7 +29,7 @@ The first vertical slice (specs.md §48) is `Application → Engine → Platform
 |---|---|---|
 | Lifecycle (`platform_init`/`platform_shutdown`) | **Yes** | Owns process-level window-system state. |
 | Window | **Yes** | The slice presents into one. |
-| Events | **Yes** | Close and framebuffer resize drive the loop and swapchain recreation. Input (keyboard, mouse, gamepad, touch) is **out**: the triangle takes no input. |
+| Events | **Yes** | Close and framebuffer resize drive the loop and swapchain recreation. Includes the blocking wait (PLATFORM-055, #45), called by `main.c`'s loop so an idle or minimized window does not spin a core. Input (keyboard, mouse, gamepad, touch) is **out**: the triangle takes no input. |
 | Monotonic time | **Yes** | Logger timestamps (CORE-LOG-041) and frame deltas. |
 | Thread identity | **Yes** | Logger thread ids (CORE-LOG-043). |
 | Thread creation, mutex, condition variable, atomics | **No** | specs.md §38's loop is single-threaded and nothing in the tree starts a thread. A thread API is not usable without a synchronization contract (mutex, memory ordering), which is a spec of its own size. Added by amendment when the first consumer (asynchronous logging, a render thread) exists. |
@@ -183,6 +184,7 @@ typedef struct PlatformEvent {
 } PlatformEvent;
 
 void platform_pump_events(Platform *platform);
+void platform_wait_events(Platform *platform, uint64_t timeout_ns);
 bool platform_next_event(Platform *platform, PlatformEvent *out_event);
 ```
 
@@ -203,6 +205,23 @@ for (;;) {
 **PLATFORM-051 (drain).** `platform_next_event` copies the oldest queued event into `*out_event`, removes it, and returns `true`. When the queue is empty, or either argument is `NULL`, it returns `false` and writes nothing. It never pumps. Events are delivered in the order the OS produced them, subject to PLATFORM-052.
 
 **PLATFORM-052 (coalescing bounds the queue).** The queue is a fixed array allocated at `platform_init`; its capacity is backend-private. Pumping allocates nothing. At most one `FRAMEBUFFER_RESIZED` per window is queued at a time: a newer resize updates the queued entry's size in place. `CLOSE_REQUESTED` is queued at most once per window lifetime, when the close flag is first set (PLATFORM-043); later close requests queue nothing. If the queue is full, the new event is dropped and the backend logs at `WARN`. This loses nothing permanently, because **window state is authoritative and events are only notifications**: `platform_window_should_close` and `platform_window_get_framebuffer_size` always report the current truth.
+
+**PLATFORM-055 (wait).** If no OS event is pending, `platform_wait_events` blocks until one arrives or `timeout_ns` elapses, whichever comes first. It then does exactly what `platform_pump_events` does (PLATFORM-050/052), including running for the length of a modal interaction. `timeout_ns == 0` behaves as `platform_pump_events`. `UINT64_MAX` means no limit. It MAY return early for any reason, such as an OS wakeup that queues no engine event, so a caller re-checks window state after it returns (PLATFORM-052) and never infers from the return that an event is queued or that the timeout elapsed. It reports no OS errors (PLATFORM-034). It is a no-op for `NULL`: it returns at once without blocking. It allocates nothing. It is `THREAD_AFFINE` to the platform thread (PLATFORM-081). PLATFORM-050 is unchanged: `platform_pump_events` never waits. Every backend can implement the wait unconditionally, so there is no capability query. *Rationale (#45):* vsync cannot pace the idle case, because a minimized window reports `0 × 0` (PLATFORM-042) and must not present (§13 edge case 3), so nothing else would block the loop. A sleep adds input latency, and a timeout parameter on the pump would change PLATFORM-050 and every caller.
+
+**PLATFORM-056 (timeout granularity).** A non-zero `timeout_ns` is rounded **up** to the OS wait granularity (milliseconds on Win32 and `poll`), never down to `0`: rounding to `0` turns the wait into a pump and reintroduces the spin. Outside a modal interaction (PLATFORM-050), the call returns within `timeout_ns` + one granularity unit + scheduler latency. The contract gives no numeric bound for scheduler latency.
+
+Recommended loop shape. Until rendering exists, the wait is the tick. With rendering, the loop waits only while there is nothing to present, and otherwise pumps and lets present pace it:
+
+```c
+/* until GPU rendering lands */
+platform_wait_events(platform, TICK_NS);
+
+/* with rendering */
+if (fb_width == 0 || fb_height == 0) platform_wait_events(platform, IDLE_NS);   /* minimized */
+else                                 platform_pump_events(platform);            /* present paces */
+```
+
+`IDLE_NS` and `TICK_NS` are the application's constants, not contract. The values chosen in #45 are 100 ms idle and 16.7 ms pre-GPU tick.
 
 **PLATFORM-053 (window pointer validity).** `event.window` is borrowed. Because destroying a window purges its events (PLATFORM-044), every event `platform_next_event` returns refers to a live window.
 
@@ -271,7 +290,7 @@ Stated in CORE-ALLOC-021's vocabulary.
 | Functions | Level |
 |---|---|
 | `platform_time_now_ns`, `platform_thread_current_id`, `platform_log_time_source`, `platform_log_thread_id_source` | `THREAD_SAFE` |
-| every other Platform API function, including `platform_window_get_native` | `THREAD_AFFINE` to the platform thread |
+| every other Platform API function, including `platform_window_get_native`, `platform_pump_events`, and `platform_wait_events` | `THREAD_AFFINE` to the platform thread |
 
 **PLATFORM-082 (what the platform calls, and from where).** A backend invokes its allocator and logger **only on the platform thread**, and only inside a Platform API call. OS callbacks the backend receives on other threads MUST NOT allocate through the `EngineAllocator` or log. The caller's allocator and sinks therefore need nothing stronger than `THREAD_AFFINE` to the platform thread on the platform's behalf. Per the `api.h` block, this is a uniform backend precondition, not a per-OS variation.
 
@@ -363,6 +382,8 @@ Until the §11 Linux ADR lands, `engine_platform_linux` implements only time and
 
 **PLAT-INV-15.** GPU backends perform no native-object mutation other than PLATFORM-072's `CAMetalLayer` installation. *(review-enforced)*
 
+**PLAT-INV-16.** `platform_wait_events(NULL, t)` returns normally for a non-zero `t`. On a live `Platform` with a window, a `0` timeout returns without blocking, and a short timeout with no pending input returns within a generous upper bound (PLATFORM-056). The test asserts upper bounds only, never a lower bound, because early return is allowed (PLATFORM-055), and a wait that ignores its timeout fails within a bounded test time rather than hanging. "Wakes promptly when an event arrives" cannot be asserted portably, because the API cannot synthesize an OS event (PLAT-INV-12, PLATFORM-102), so it stays a manual check: an idle or minimized app uses near-0% CPU and still reacts to resize and close at once. *(conformance: window)*
+
 ---
 
 ## 13. Edge cases
@@ -382,12 +403,15 @@ Until the §11 Linux ADR lands, `engine_platform_linux` implements only time and
 13. **Clock across system suspend:** unspecified, and frame code clamps the delta (PLATFORM-021).
 14. **GPU backend given `X11` or `WAYLAND` before the Linux ADR lands:** returns `NOT_SUPPORTED` (PLATFORM-071).
 15. **Invalid UTF-8 title:** no crash and no failure. The backend may substitute U+FFFD (PLATFORM-041).
+16. **Minimized window in the loop:** the loop waits rather than pumps, because nothing presents at `0 × 0` to pace it (PLATFORM-055). The OS restore event ends the wait, and the pump queues `FRAMEBUFFER_RESIZED` with the restored size.
+17. **Unbounded wait (`UINT64_MAX`):** returns only on an OS event or an early wakeup. No API wakes it from another thread, so a caller that needs to resume for any other reason passes a finite timeout. An unbounded wait is the caller's risk.
+18. **Cross-thread wake:** a `platform_wake` that ends a wait from another thread is deferred until the engine starts threads (PLATFORM-010).
 
 ---
 
 ## 14. Migration impact
 
-Done (PRs #37–#43) except the Win32 backend (#34) and Linux windowing (§11 item 1, #28).
+Done (PRs #37–#43) except the Win32 backend (#34) and Linux windowing (§11 item 1, #28). The #45 amendment (`platform_wait_events`) is implemented by #50, in the rows marked #50.
 
 | File | Change |
 |---|---|
@@ -399,6 +423,19 @@ Done (PRs #37–#43) except the Win32 backend (#34) and Linux windowing (§11 it
 | Root `CMakeLists.txt` (ADR-011) | `enable_language(OBJC)` guarded by `NAYLA_PLATFORM_BACKEND STREQUAL "macos"`. |
 | `main.c` | Install the adapters after `engine_log_init`, then `platform_init`/window/loop/teardown per PLATFORM-083. On Linux the application logs and exits with `NOT_SUPPORTED` until the ADR. |
 | `tests/platform/` (new), `tests/CMakeLists.txt` | The two conformance tests, the header compile checks, and `unit/platform_smoke` (PLATFORM-100); `add_subdirectory(platform)`. |
+| `src/platform/api.h` (#50) | Declare `platform_wait_events` (PLATFORM-055). |
+| Platform backends (#50) | macOS implements PLATFORM-055/056. `platform_stub.c` (Win32 and Linux until their windowing work) defines a `NULL`-tolerant function that returns at once; no `Platform` exists there. |
+| `main.c` (#50) | The loop calls `platform_wait_events` with `TICK_NS` (16.7 ms), or `IDLE_NS` (100 ms) while the framebuffer is `0 × 0`, instead of `platform_pump_events`. Each constant carries a comment citing #45. |
+| `tests/platform/` (#50) | PLAT-INV-16 rows in `contract/platform_window`. |
 | CI (`ci.yml`) | Ubuntu jobs (including sanitizers) set `NAYLA_TEST_NO_DISPLAY=1`; macOS jobs do not (PLATFORM-101). |
+
+Backend mapping for PLATFORM-055 (informative, not normative; each backend still converts the timeout per PLATFORM-056 and then runs its pump):
+
+| Backend | Wait mechanism |
+|---|---|
+| Win32 | `MsgWaitForMultipleObjectsEx(0, NULL, ms, QS_ALLINPUT, MWMO_INPUTAVAILABLE)`. `MWMO_INPUTAVAILABLE` also returns for input already in the queue but not yet seen. |
+| macOS | `nextEventMatchingMask:untilDate:dequeue:YES` with the timeout as the date (`distantPast` for `0`, `distantFuture` for `UINT64_MAX`). The event it dequeues is sent, then the normal pump runs. |
+| X11 | If `XPending` is zero, `poll` on `ConnectionNumber(display)`. |
+| Wayland | Loop `wl_display_prepare_read` while dispatching pending events, then `wl_display_flush`, then `poll` on the display fd, then `wl_display_read_events` (or `wl_display_cancel_read` on timeout). |
 
 The suggested order is: header + `native.h` + static/grep checks (no backend needed), then the time/thread-only `engine_platform_linux` plus `engine_platform_win32` and `engine_platform_macos` with the conformance suite, then `main.c`. Linux windowing waits for its ADR. No existing behaviour changes.
