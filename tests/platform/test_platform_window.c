@@ -519,15 +519,18 @@ static int test_native_record_matches_table(void) {
 /* ---- PLAT-INV-16: wait(0) and bounded short waits (PLATFORM-055/056) ---------- */
 
 /* Upper bounds only: early return is allowed (PLATFORM-055). A wait(0) that
- * blocks fails the first bound; a wait that ignores its timeout hangs here, and
- * CTest's TIMEOUT property fails the test in bounded time. */
+ * blocks fails the first bound. A wait that truly blocks forever hangs here and
+ * CTest's TIMEOUT fails the test in bounded time; on macOS a wait that merely
+ * ignores its timeout is still woken by AppKit's own events, so that case is
+ * only a manual check ("wakes promptly", PLAT-INV-16). */
 #define WAIT_ZERO_BOUND_NS 100000000u
 #define WAIT_SHORT_NS 20000000u
 #define WAIT_SHORT_BOUND_NS 2000000000u
 
-/* AppKit posts window-state events shortly after creation, and one can end a
- * wait early. Pumping for a while first makes the short wait start with no
- * pending input, so its bound is what the test measures (PLAT-INV-16). */
+/* PLAT-INV-16 times a short wait "with no pending input": AppKit posts
+ * window-state events shortly after creation, and the pump time spent on them is
+ * outside PLATFORM-056's bound. Pumping for a while first drains them so the
+ * measured call is the blocking phase. */
 #define WAIT_SETTLE_NS 300000000u
 #define WAIT_SETTLE_STEP_NS 10000000u
 

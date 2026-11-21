@@ -515,18 +515,22 @@ void platform_pump_events(Platform *platform) {
     }
 }
 
-/* PLATFORM-055/056. The blocking phase is one untilDate wait: NSDate's double
- * seconds need no OS granularity rounding, and a non-zero timeout is always
- * >= 1 ns, so it never becomes distantPast (0). UINT64_MAX means no limit. */
+/* PLATFORM-055/056. The blocking phase is one untilDate wait. NSDate holds
+ * seconds since 2001 as a double (~1e-7 s resolution today), so a timeout below
+ * that would round to "now" and turn the wait into a pump: a non-zero timeout
+ * is rounded up to 1 us (PLATFORM-056). UINT64_MAX means no limit. */
+#define WAIT_MIN_NS ((uint64_t)1000u)
+
 void platform_wait_events(Platform *platform, uint64_t timeout_ns) {
     if (!platform) {
         return;
     }
     if (timeout_ns != 0) {
+        uint64_t wait_ns = timeout_ns < WAIT_MIN_NS ? WAIT_MIN_NS : timeout_ns;
         @autoreleasepool {
             NSDate *until = (timeout_ns == UINT64_MAX)
                 ? [NSDate distantFuture]
-                : [NSDate dateWithTimeIntervalSinceNow:(double)timeout_ns / 1e9];
+                : [NSDate dateWithTimeIntervalSinceNow:(double)wait_ns / 1e9];
             NSEvent *event = [NSApp nextEventMatchingMask:NSEventMaskAny
                                                 untilDate:until
                                                    inMode:NSDefaultRunLoopMode

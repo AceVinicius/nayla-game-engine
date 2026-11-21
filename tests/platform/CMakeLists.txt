@@ -26,7 +26,7 @@ add_executable(test_platform_stateless test_platform_stateless.c)
 target_link_libraries(test_platform_stateless PRIVATE engine_platform Threads::Threads)
 target_compile_options(test_platform_stateless PRIVATE -Wall -Wextra -Wpedantic)
 add_test(NAME contract/platform_stateless COMMAND test_platform_stateless)
-# A wait that ignores its timeout must fail in bounded time, not hang CI (PLAT-INV-16).
+# A wait(NULL, t) that sleeps must fail in bounded time, not hang CI (PLAT-INV-13).
 set_tests_properties(contract/platform_stateless PROPERTIES TIMEOUT 60)
 
 # Window conformance (PLATFORM-100..102; PLAT-INV-9..12). The test exits with
