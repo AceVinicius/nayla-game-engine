@@ -1,6 +1,6 @@
 # Platform API — Contract Specification
 
-**Status:** Accepted (2026-11-21). Implemented and conformance-tested on macOS (PRs #39–#43); the Win32 backend (#34) and Linux windowing (ADR pending, #28) remain.
+**Status:** Accepted (2026-11-21). Implemented and conformance-tested on macOS (PRs #37–#43); the Win32 backend (#34) and Linux windowing (ADR pending, #28) remain.
 **Date:** 2026-11-20
 **Author:** `spec-writer`
 **Scope:** the Platform API contract for the first milestone (specs.md §47/§48): platform lifecycle, windows, events, monotonic time, thread identity, and the native-handle boundary to the future GPU surface. Binding on `src/platform/api.h`, `src/platform/native.h`, and every OS backend.
@@ -393,7 +393,7 @@ Done (PRs #37–#43) except the Win32 backend (#34) and Linux windowing (§11 it
 |---|---|
 | `src/platform/api.h` | Replace the placeholder with §3–§6 declarations. The TASK-007 normative block stays verbatim. |
 | `src/platform/native.h` (new) | §7.2. |
-| `src/platform/CMakeLists.txt` | `engine_platform_api` links `engine_foundation`. Add backend targets, `NAYLA_PLATFORM_BACKEND`, the `engine_platform` alias, and the build-time greps for PLAT-INV-3(c) and PLATFORM-094 over every `src/platform/<os>/` and `src/platform/common/`. PLAT-INV-2, -3(a)/(b) on the top-level headers, -5, and -14 are rows in `tests/architecture/test_core_invariants.c` (a build check cannot attach to the INTERFACE `engine_platform_api`). |
+| `src/platform/CMakeLists.txt` | `engine_platform_api` links `engine_foundation`. Add backend targets, `NAYLA_PLATFORM_BACKEND`, the `engine_platform` alias, and the build-time greps: PLAT-INV-3(c) over every `src/platform/<os>/` and `src/platform/common/`, and PLATFORM-094's OS-include ban over `src/platform/common/`. PLAT-INV-2, -3(a)/(b) on the top-level headers, -5, and -14 are rows in `tests/architecture/test_core_invariants.c` (a build check cannot attach to the INTERFACE `engine_platform_api`). |
 | `src/CMakeLists.txt` | At the end, after every target exists: the PLAT-INV-4 `forbid_transitive_link` calls, one per forbidden name. |
 | `cmake/Common.cmake`, `forbid-pattern.sh` (PR #38) | `forbid-pattern.sh` takes a basename-regex exemption and a case-insensitive flag (PLAT-INV-3(b)). `forbid_transitive_link` takes the invariant ID. |
 | Root `CMakeLists.txt` (ADR-011) | `enable_language(OBJC)` guarded by `NAYLA_PLATFORM_BACKEND STREQUAL "macos"`. |
