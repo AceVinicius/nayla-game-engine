@@ -19,8 +19,8 @@ set(NAYLA_FORBID_PATTERN_SCRIPT "${CMAKE_SOURCE_DIR}/cmake/forbid-pattern.sh")
 # Known MSVC gaps, untested here (no Windows toolchain on the dev host):
 #  - tests/platform/test_platform_stateless.c includes <stdatomic.h>, which MSVC
 #    provides only with /experimental:c11atomics.
-#  - /permissive- is not set; MSVC's default mode is not C-conforming, so
-#    pedantic-style diagnostics are weaker than under GCC/Clang.
+#  - MSVC has no counterpart to -pedantic-errors (C_STANDARD already selects
+#    /std:c17), so PEDANTIC_ERRORS adds nothing there.
 #  - -fno-objc-arc (src/platform/CMakeLists.txt) is Apple-only; it has no MSVC form.
 function(nayla_target_warnings target)
   cmake_parse_arguments(PARSE_ARGV 1 _w "PEDANTIC_ERRORS" "" "")
