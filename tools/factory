@@ -85,15 +85,15 @@ cmd_test() {
 
 # The pre-PR gate: both build types, warnings as errors, full ctest.
 cmd_check() {
-    local status=0 type
+    local status=0 type out; out="$(mktemp)"
     for type in debug release; do
-        if build "$type" clean && run_tests "$type" >/tmp/factory-$$.txt; then
-            echo "$type: OK ($(grep -oE '[0-9]+% tests passed.*' /tmp/factory-$$.txt))"
+        if build "$type" clean && run_tests "$type" >"$out"; then
+            echo "$type: OK ($(grep -oE '[0-9]+% tests passed.*' "$out"))"
         else
-            echo "$type: FAILED"; cat /tmp/factory-$$.txt 2>/dev/null; status=1
+            echo "$type: FAILED"; cat "$out"; status=1
         fi
-        rm -f /tmp/factory-$$.txt
     done
+    rm -f "$out"
     exit $status
 }
 
@@ -104,32 +104,33 @@ cmd_prove() {
     [ $# -eq 3 ] || die "usage: factory prove <file> '<inject command using \$F>' <test-regex>"
     local file="$1" inject="$2" regex="$3" type=debug
     [ -f "$file" ] || [ ! -e "$file" ] || die "not a regular file: $file"
-    local existed=1 backup; backup="$(mktemp)"
-    if [ -f "$file" ]; then cp -p "$file" "$backup"; else existed=0; fi
+    local existed=1 backup out; backup="$(mktemp)"; out="$(mktemp)"
+    if [ -f "$file" ]; then cp "$file" "$backup"; else existed=0; fi
+    # Plain cp + touch (never cp -p): the restored file must look newer than
+    # the injected objects so any generator rebuilds it.
     restore() {
-        if [ $existed -eq 1 ]; then cp -p "$backup" "$file"; else rm -f "$file"; fi
-        rm -f "$backup"
+        if [ $existed -eq 1 ]; then cp "$backup" "$file" && touch "$file"; else rm -f "$file"; fi
     }
-    trap restore EXIT INT TERM
+    trap 'restore; rm -f "$backup" "$out"' EXIT
+    trap 'restore; rm -f "$backup" "$out"; trap - EXIT; echo "prove: interrupted, $file restored" >&2; exit 130' INT TERM
     F="$file" bash -c "$inject" || die "inject command failed"
+    touch "$file" 2>/dev/null
     local clean=""; uses_make "$type" && clean=clean
     local verdict
-    if ! build "$type" "$clean" >/dev/null; then
-        verdict="CAUGHT (build failed)"
-        build "$type" >/dev/null 2>&1; build "$type" 2>&1 | head -5
-    elif ! run_tests "$type" "$regex" >/tmp/factory-prove-$$.txt; then
-        verdict="CAUGHT (test failed)"; grep -E '✗|FAILED|Failed' /tmp/factory-prove-$$.txt | head -8
+    if ! build "$type" "$clean" >"$out" 2>&1; then
+        verdict="CAUGHT (build failed)"; head -5 "$out"
+    elif ! run_tests "$type" "$regex" >"$out"; then
+        verdict="CAUGHT (test failed)"; grep -E '✗|FAILED|Failed' "$out" | head -8
     else
         verdict="MISSED (build and tests still pass)"
     fi
-    rm -f /tmp/factory-prove-$$.txt
-    trap - EXIT INT TERM
-    local saved; saved="$(mktemp)"; cp -p "$backup" "$saved" 2>/dev/null
     restore
-    if [ $existed -eq 1 ] && ! cmp -s "$file" "$saved"; then
-        rm -f "$saved"; die "restore of $file FAILED: inspect it now"
+    if [ $existed -eq 1 ] && ! cmp -s "$file" "$backup"; then
+        trap - EXIT INT TERM
+        die "restore of $file FAILED: a copy of the original is at $backup"
     fi
-    rm -f "$saved"
+    trap - EXIT INT TERM
+    rm -f "$backup" "$out"
     build "$type" "$clean" >/dev/null || echo "warning: rebuild after restore failed"
     echo "$verdict"
     [[ "$verdict" == CAUGHT* ]]
@@ -144,6 +145,7 @@ cmd_pr_wait() {
     local pr="${1:-}"; [ -n "$pr" ] || die "usage: factory pr-wait <pr-number>"
     local head n i
     head="$(gh_q pr view "$pr" --repo "$REPO" --json headRefOid -q .headRefOid)"
+    [ -n "$head" ] || die "PR $pr not found (or gh is not authenticated)"
     for i in $(seq 1 60); do
         n="$(gh_q api "repos/$REPO/commits/$head/check-runs" -q .total_count)"
         [ "${n:-0}" -ge 1 ] && break; sleep 10
@@ -151,8 +153,17 @@ cmd_pr_wait() {
     if [ "$(gh_q api "repos/$REPO/pulls/$pr/reviews" -q '[.[]|select(.user.login|test("copilot"))]|length')" = 0 ]; then
         gh pr edit "$pr" --repo "$REPO" --add-reviewer copilot-pull-request-reviewer >/dev/null 2>&1 || true
     fi
-    gh pr checks "$pr" --repo "$REPO" --watch >/dev/null 2>&1; local rc=$?
-    echo "PR $pr @ ${head:0:7}: checks $([ $rc -eq 0 ] && echo PASS || echo FAIL)"
+    # Bounded wait (about 40 min): gh's --watch alone can hang on a stuck check.
+    local rc=8 states
+    for i in $(seq 1 120); do
+        states="$(gh_q pr checks "$pr" --repo "$REPO" | awk -F'\t' '{print $2}')"
+        if ! printf '%s\n' "$states" | grep -qE 'pending|queued|in_progress'; then
+            printf '%s\n' "$states" | grep -qE 'fail|cancel' && rc=1 || rc=0
+            break
+        fi
+        sleep 20
+    done
+    echo "PR $pr @ ${head:0:7}: checks $(case $rc in 0) echo PASS ;; 1) echo FAIL ;; *) echo 'STILL RUNNING (timed out)' ;; esac)"
     gh_q pr checks "$pr" --repo "$REPO" | awk -F'\t' '$2 != "pass" {print "  " $1 ": " $2}'
     if [ $rc -ne 0 ]; then
         local run; run="$(gh_q run list --repo "$REPO" --commit "$head" --workflow CI --limit 1 --json databaseId -q '.[0].databaseId')"
@@ -184,7 +195,8 @@ cmd_status() {
 
 cmd_search() {
     [ -n "${1:-}" ] || die "usage: factory search <pattern>"
-    grep -rn -- "$1" "$PROJECT_DIR/src" "$PROJECT_DIR/tests" 2>/dev/null | head -50 || echo "No matches found"
+    local hits; hits="$(grep -rn -- "$1" "$PROJECT_DIR/src" "$PROJECT_DIR/tests" 2>/dev/null)"
+    [ -n "$hits" ] && printf '%s\n' "$hits" | head -50 || echo "No matches found"
 }
 
 cmd_inspect() {
