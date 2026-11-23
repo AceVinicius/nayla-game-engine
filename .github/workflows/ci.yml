@@ -26,7 +26,7 @@ jobs:
           BASE: ${{ github.base_ref }}
         run: |
           code=true
-          if [ "$EVENT" = "pull_request" ] && files="$(git diff --name-only "origin/$BASE...HEAD")" \
+          if [ "$EVENT" = "pull_request" ] && files="$(git diff --name-only --no-renames "origin/$BASE...HEAD")" \
              && [ -n "$files" ] && ! printf '%s\n' "$files" | grep -qvE '^docs/|\.md$'; then
             code=false
           fi

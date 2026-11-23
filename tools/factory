@@ -30,10 +30,16 @@ configure() {
     if [ ! -f "$dir/CMakeCache.txt" ] && command -v ninja >/dev/null 2>&1; then
         gen=(-G Ninja)
     fi
+    # Returns (never exits): a configure-time check firing is a result that
+    # `prove` and `check` must report, not a reason to abort.
+    local log; log="$(mktemp)" || return 1
     cmake -S "$PROJECT_DIR" -B "$dir" ${gen[@]+"${gen[@]}"} \
         -DCMAKE_BUILD_TYPE="$(cmake_type "$type")" \
-        -DCMAKE_COMPILE_WARNING_AS_ERROR=ON >/dev/null \
-        || die "configure ($type) failed; rerun: cmake -S . -B $dir"
+        -DCMAKE_COMPILE_WARNING_AS_ERROR=ON >"$log" 2>&1
+    local rc=$?
+    [ $rc -eq 0 ] || { echo "configure ($type) failed:"; grep -E 'Error|error' "$log" | head -10; }
+    rm -f "$log"
+    return $rc
 }
 
 uses_make() { grep -q 'CMAKE_GENERATOR:INTERNAL=Unix Makefiles' "$(build_dir "$1")/CMakeCache.txt" 2>/dev/null; }
@@ -41,7 +47,7 @@ uses_make() { grep -q 'CMAKE_GENERATOR:INTERNAL=Unix Makefiles' "$(build_dir "$1
 # Builds and prints only warning/error lines. Returns the build's status.
 build() {
     local type="$1" clean="${2:-}" dir; dir="$(build_dir "$type")"
-    configure "$type"
+    configure "$type" || return 1
     local args=(--build "$dir")
     [ "$clean" = clean ] && args+=(--clean-first)
     local log; log="$(mktemp)"
@@ -104,16 +110,36 @@ cmd_prove() {
     [ $# -eq 3 ] || die "usage: factory prove <file> '<inject command using \$F>' <test-regex>"
     local file="$1" inject="$2" regex="$3" type=debug
     [ -f "$file" ] || [ ! -e "$file" ] || die "not a regular file: $file"
-    local existed=1 backup out; backup="$(mktemp)"; out="$(mktemp)"
-    if [ -f "$file" ]; then cp "$file" "$backup"; else existed=0; fi
+    local existed=1 backup out
+    backup="$(mktemp)" && out="$(mktemp)" || die "cannot create temp files; nothing was changed"
+    if [ -f "$file" ]; then
+        cp "$file" "$backup" && cmp -s "$file" "$backup" || die "backup of $file failed; nothing was changed"
+    else
+        existed=0
+    fi
     # Plain cp + touch (never cp -p): the restored file must look newer than
-    # the injected objects so any generator rebuilds it.
+    # the injected objects so any generator rebuilds it. Returns success only
+    # when the file is verifiably back to its original state.
     restore() {
-        if [ $existed -eq 1 ]; then cp "$backup" "$file" && touch "$file"; else rm -f "$file"; fi
+        if [ $existed -eq 1 ]; then
+            cp "$backup" "$file" && touch "$file" && cmp -s "$file" "$backup"
+        else
+            rm -f "$file" && [ ! -e "$file" ]
+        fi
     }
-    trap 'restore; rm -f "$backup" "$out"' EXIT
-    trap 'restore; rm -f "$backup" "$out"; trap - EXIT; echo "prove: interrupted, $file restored" >&2; exit 130' INT TERM
-    F="$file" bash -c "$inject" || die "inject command failed"
+    # On any abort: restore, keep the backup if the restore cannot be verified.
+    abort() {
+        trap - EXIT INT TERM
+        if restore; then
+            rm -f "$backup" "$out"; echo "prove: $1, $file restored" >&2
+        else
+            echo "prove: $1 and restoring $file FAILED; original kept at $backup" >&2
+        fi
+        exit "$2"
+    }
+    trap 'abort "exited early" 2' EXIT
+    trap 'abort interrupted 130' INT TERM
+    F="$file" bash -c "$inject" || abort "inject command failed" 2
     touch "$file" 2>/dev/null
     local clean=""; uses_make "$type" && clean=clean
     local verdict
@@ -124,12 +150,10 @@ cmd_prove() {
     else
         verdict="MISSED (build and tests still pass)"
     fi
-    restore
-    if [ $existed -eq 1 ] && ! cmp -s "$file" "$backup"; then
-        trap - EXIT INT TERM
-        die "restore of $file FAILED: a copy of the original is at $backup"
-    fi
     trap - EXIT INT TERM
+    if ! restore; then
+        die "restore of $file FAILED: original kept at $backup"
+    fi
     rm -f "$backup" "$out"
     build "$type" "$clean" >/dev/null || echo "warning: rebuild after restore failed"
     echo "$verdict"
@@ -150,31 +174,50 @@ cmd_pr_wait() {
         n="$(gh_q api "repos/$REPO/commits/$head/check-runs" -q .total_count)"
         [ "${n:-0}" -ge 1 ] && break; sleep 10
     done
-    if [ "$(gh_q api "repos/$REPO/pulls/$pr/reviews" -q '[.[]|select(.user.login|test("copilot"))]|length')" = 0 ]; then
-        gh pr edit "$pr" --repo "$REPO" --add-reviewer copilot-pull-request-reviewer >/dev/null 2>&1 || true
-    fi
+    # Copilot reviews of THIS head commit only; an older review never counts.
+    # Prints a count, or nothing if the API call failed.
+    copilot_reviews() {
+        gh_q api --paginate "repos/$REPO/pulls/$pr/reviews" \
+            -q "[.[]|select((.user.login|test(\"copilot\")) and .commit_id == \"$head\")]|length" \
+            | awk '{s += $1} END {if (NR) print s}'
+    }
+    [ "$(copilot_reviews)" = 0 ] && \
+        gh pr edit "$pr" --repo "$REPO" --add-reviewer copilot-pull-request-reviewer >/dev/null 2>&1
     # Bounded wait (about 40 min): gh's --watch alone can hang on a stuck check.
+    # An empty answer (API or network error) is unknown, never PASS.
     local rc=8 states
     for i in $(seq 1 120); do
         states="$(gh_q pr checks "$pr" --repo "$REPO" | awk -F'\t' '{print $2}')"
-        if ! printf '%s\n' "$states" | grep -qE 'pending|queued|in_progress'; then
-            printf '%s\n' "$states" | grep -qE 'fail|cancel' && rc=1 || rc=0
+        if [ -n "$states" ] && ! printf '%s\n' "$states" | grep -qE 'pending|queued|in_progress'; then
+            if printf '%s\n' "$states" | grep -qE 'fail|cancel'; then rc=1; else rc=0; fi
             break
         fi
         sleep 20
     done
-    echo "PR $pr @ ${head:0:7}: checks $(case $rc in 0) echo PASS ;; 1) echo FAIL ;; *) echo 'STILL RUNNING (timed out)' ;; esac)"
+    local verdict="STILL RUNNING OR UNKNOWN (timed out)"
+    [ $rc -eq 0 ] && verdict=PASS
+    [ $rc -eq 1 ] && verdict=FAIL
+    echo "PR $pr @ ${head:0:7}: checks $verdict"
     gh_q pr checks "$pr" --repo "$REPO" | awk -F'\t' '$2 != "pass" {print "  " $1 ": " $2}'
-    if [ $rc -ne 0 ]; then
+    if [ $rc -eq 1 ]; then
         local run; run="$(gh_q run list --repo "$REPO" --commit "$head" --workflow CI --limit 1 --json databaseId -q '.[0].databaseId')"
         [ -n "$run" ] && gh_q run view "$run" --repo "$REPO" --log-failed | grep -E 'error|Error|FAILED|✗' | sed 's/^.*Z //' | head -20
     fi
+    local reviews=""
     for i in $(seq 1 40); do
-        [ "$(gh_q api "repos/$REPO/pulls/$pr/reviews" -q '[.[]|select(.user.login|test("copilot"))]|length')" != 0 ] && break
-        sleep 15
+        reviews="$(copilot_reviews)"
+        case "$reviews" in ''|*[!0-9]*|0) sleep 15 ;; *) break ;; esac
     done
-    gh_q api "repos/$REPO/pulls/$pr/reviews" -q '.[]|select(.user.login|test("copilot"))|"copilot: " + (.body|split("\n")|map(select(test("^### ")))|join(" "))'
-    gh_q api "repos/$REPO/pulls/$pr/comments" -q '.[]|select(.in_reply_to_id==null)|"  [" + .path + ":" + ((.line // .original_line)|tostring) + "] (id " + (.id|tostring) + ") " + .body'
+    case "$reviews" in
+        ''|*[!0-9]*|0)
+            echo "copilot: no review of ${head:0:7} received (timed out or API error)"
+            [ $rc -eq 0 ] && rc=9 ;;
+        *)
+            gh_q api --paginate "repos/$REPO/pulls/$pr/reviews" \
+                -q ".[]|select((.user.login|test(\"copilot\")) and .commit_id == \"$head\")|\"copilot: \" + (.body|split(\"\n\")|map(select(test(\"^### \")))|join(\" \"))" ;;
+    esac
+    gh_q api --paginate "repos/$REPO/pulls/$pr/comments" \
+        -q ".[]|select(.in_reply_to_id==null and .commit_id == \"$head\")|\"  [\" + .path + \":\" + ((.line // .original_line)|tostring) + \"] (id \" + (.id|tostring) + \") \" + .body"
     gh_q pr view "$pr" --repo "$REPO" --json mergeStateStatus -q '"merge state: " + .mergeStateStatus'
     return $rc
 }
