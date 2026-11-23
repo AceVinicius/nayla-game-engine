@@ -58,20 +58,21 @@ build() {
     return $rc
 }
 
-# Diagnostic lines only: compiler/linker messages, FAILED targets, and each
-# "ERROR:" block from the build-time checks (cmake/forbid-pattern.sh) with the
-# lines it quotes. Drops compiler command lines (they contain -Werror),
-# "N errors generated." and repeats; paths become repo-relative.
+# Diagnostic lines only: compiler messages, linker symbol lines, FAILED
+# targets, and each "ERROR:" (cmake/forbid-pattern.sh) or "CMake Error" block
+# with the lines that follow it. Drops compiler command lines (they contain
+# -Werror), "N errors generated." and repeats; paths become repo-relative.
 diagnostics() {
     awk -v p="$PROJECT_DIR/" '
+        function emit() { if (!seen[$0]++) print }
         { while ((i = index($0, p)) > 0) $0 = substr($0, 1, i - 1) substr($0, i + length(p)) }
-        /^ERROR:/ { block = 5; emit(); next }
+        /^(ERROR:|CMake Error)/ { block = 5; emit(); next }
         block > 0 && !/^(\[[0-9]|FAILED|ninja|make|gmake)/ { block--; emit(); next }
         { block = 0 }
-        /(cc|c\+\+|clang|gcc|g\+\+|cl\.exe|ld)[[:space:]].* -[co][[:space:]]/ { next }
+        /^[^[:space:]:]+:[0-9]+(:[0-9]+)?: (fatal error|error|warning|note)/ { emit(); next }
+        /^[[:space:]]*(\[[0-9]+\/[0-9]+\][[:space:]]+)?(: && |cd [^&]*&& )?[^[:space:]]*(cc|c\+\+|clang|gcc|g\+\+|cl\.exe|link\.exe|ld)[[:space:]].* -[co][[:space:]]/ { next }
         /^[0-9]+ (warning|error)s? generated/ { next }
-        /warning|error|Error|FAILED|Undefined symbols/ { emit() }
-        function emit() { if (!seen[$0]++) print }' "$1"
+        /warning|error|Error|FAILED|Undefined symbols|undefined reference|referenced from|duplicate symbol|multiple definition|^ld: / { emit() }' "$1"
 }
 
 # Runs ctest; prints failing tests and their output only.
@@ -288,7 +289,7 @@ cmd_pr_comments() {
         -q '.data.repository.pullRequest.reviewThreads as $t
             | ($t.nodes[] | select((.isResolved or .isOutdated) | not)
                | .comments.nodes[0] as $c
-               | "[" + .path + ":" + ((.line // .originalLine)|tostring) + "] (id "
+               | "[" + .path + ":" + ((.line // .originalLine // "file")|tostring) + "] (id "
                  + ($c.databaseId|tostring) + ", " + $c.author.login + ") " + $c.body),
               (if $t.pageInfo.hasNextPage then "WARNING: more than 100 threads; only the first 100 were checked" else empty end)')" \
         || die "PR $1 not found (or gh is not authenticated)"
@@ -308,8 +309,6 @@ cmd_status() {
     command -v ninja >/dev/null 2>&1 && echo "ninja: yes" || echo "ninja: no (Makefiles; see rules/tooling.md)"
     echo "branch: $(git -C "$PROJECT_DIR" rev-parse --abbrev-ref HEAD)  $(git -C "$PROJECT_DIR" status --short | wc -l | tr -d ' ') changed file(s)"
 }
-
-
 
 # Rule definitions in docs/ are paragraphs that start with `**<ID>`, e.g.
 # `**PLAT-INV-3.**` or `**CORE-LOG-010 (title).**`.
