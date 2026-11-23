@@ -23,6 +23,11 @@ static int test_compile_gate(void) {
     EngineLogger logger;
     CHECK_OK(engine_log_init(&logger, ENGINE_LOG_LEVEL_TRACE));
 
+    /* Naming the helper outside the macro keeps it referenced at level 4, where
+     * ENGINE_LOG_TRACE expands to nothing. Naming it does not call it, so the
+     * counter still reflects only what the gate lets through. */
+    (void)counter_that_increments;
+
     ENGINE_LOG_TRACE(&logger, "Core", "Counter: %u", counter_that_increments());
 
     const uint32_t expected = ENGINE_LOG_COMPILE_MIN_LEVEL <= 0 ? 1 : 0;

@@ -1,22 +1,26 @@
 # Contract tests: verify API contracts are satisfied
 
 add_executable(test_api_contracts test_api_contracts.c)
+nayla_target_warnings(test_api_contracts)
 target_link_libraries(test_api_contracts PRIVATE engine_core)
 add_test(NAME contract/api_contracts COMMAND test_api_contracts)
 
 # Contract tests for allocator (ALLOC-INV-13: failing allocator)
 add_executable(test_allocator_contracts test_allocator_contracts.c)
+nayla_target_warnings(test_allocator_contracts)
 target_link_libraries(test_allocator_contracts PRIVATE engine_core)
 add_test(NAME contract/allocator COMMAND test_allocator_contracts)
 
 # Contract tests for logger (LOG-INV-8: add_sink/remove_sink contracts)
 # Requirement 1: link engine_foundation only, never engine_core
 add_executable(test_logger_contracts test_logger_contracts.c)
+nayla_target_warnings(test_logger_contracts)
 target_link_libraries(test_logger_contracts PRIVATE engine_foundation)
 add_test(NAME contract/logger COMMAND test_logger_contracts)
 
 # Contract tests for the renderer. Links engine_renderer only, never
 # engine_core (ALLOC-INV-11).
 add_executable(test_renderer_contracts test_renderer_contracts.c)
+nayla_target_warnings(test_renderer_contracts)
 target_link_libraries(test_renderer_contracts PRIVATE engine_renderer)
 add_test(NAME contract/renderer COMMAND test_renderer_contracts)

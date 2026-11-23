@@ -52,5 +52,6 @@ add_subdirectory(tests)
 
 # Main executable
 add_executable(nayla_game_engine main.c)
+nayla_target_warnings(nayla_game_engine)
 # PLATFORM-093: only executables link engine_platform (the selected backend).
 target_link_libraries(nayla_game_engine PRIVATE engine_core engine_platform)
