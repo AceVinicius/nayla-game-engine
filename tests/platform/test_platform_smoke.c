@@ -3,8 +3,14 @@
  * rules that every backend shares. The full conformance suite is a separate
  * task. */
 
+#if defined(__linux__)
+#define _GNU_SOURCE /* setenv/unsetenv under strict C23 */
+#endif
+
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "src/platform/api.h"
 #include "src/platform/native.h"
@@ -89,7 +95,7 @@ static int test_platform_init_rules(void) {
 static int test_window_create_rules(void) {
     PlatformWindowDesc desc = {"smoke", 640, 480, 0};
     char sentinel = 0;
-    Platform *platform = (Platform *)&sentinel;     /* never dereferenced by the stub */
+    Platform *platform = (Platform *)&sentinel;     /* only used by calls that fail validation first */
     PlatformWindow *const poison = (PlatformWindow *)&sentinel;
     PlatformWindow *w = poison; /* reset before every call so "left non-NULL" can fail */
 
@@ -130,10 +136,11 @@ static int test_window_create_rules(void) {
         platform_shutdown(real);
     } else {
         fprintf(stderr, "skip: no window system reachable; window create checked only for validation\n");
-#if !defined(__APPLE__)
-        /* The stub never dereferences the Platform, so the sentinel is safe here.
-         * The macOS backend dereferences it after creating an NSWindow, so the
-         * NOT_SUPPORTED check is not run with the sentinel on macOS. */
+#if defined(_WIN32)
+        /* Only the Win32 stub never dereferences the Platform, so the sentinel is
+         * safe there. The macOS and Linux backends dereference it (NSWindow
+         * creation; the ops table), so the NOT_SUPPORTED check is not run with
+         * the sentinel on them. */
         w = poison;
         EXPECT(platform_window_create(&w, platform, NULL, &desc), ENGINE_RESULT_NOT_SUPPORTED);
         CHECK(w == NULL, "platform_window_create left *out_window non-NULL");
@@ -166,6 +173,127 @@ static int test_null_tolerance(void) {
     return 0;
 }
 
+/* PLATFORM-041 (ADR-012 Decision 3): every invalid UTF-8 form becomes one U+FFFD. */
+static int test_title_sanitize(void) {
+    static const struct { const char *in; const char *out; } rows[] = {
+        {"plain", "plain"},
+        {"\xC3\xA9\xE2\x82\xAC\xF0\x9F\x98\x80", "\xC3\xA9\xE2\x82\xAC\xF0\x9F\x98\x80"},   /* valid 2, 3, 4 bytes */
+        {"a\x80z", "a\xEF\xBF\xBDz"},                  /* stray continuation */
+        {"\xC0\xAF", "\xEF\xBF\xBD\xEF\xBF\xBD"},        /* overlong */
+        {"\xED\xA0\x80", "\xEF\xBF\xBD\xEF\xBF\xBD\xEF\xBF\xBD"}, /* surrogate */
+        {"\xF4\x90\x80\x80", "\xEF\xBF\xBD\xEF\xBF\xBD\xEF\xBF\xBD\xEF\xBF\xBD"}, /* > U+10FFFF */
+        {"ab\xE2\x82", "ab\xEF\xBF\xBD\xEF\xBF\xBD"},    /* truncated at the NUL */
+        {"", ""},
+    };
+    for (size_t i = 0; i < sizeof rows / sizeof rows[0]; i++) {
+        char *got = platform_title_sanitize(engine_default_allocator(), rows[i].in);
+        CHECK(got != NULL, "row %zu: sanitize returned NULL", i);
+        CHECK(strcmp(got, rows[i].out) == 0, "row %zu: wrong output", i);
+        engine_free(engine_default_allocator(), got);
+    }
+    return 0;
+}
+
+/* PLATFORM-052/053: coalescing, the capacity bound, purge and FIFO order. */
+static int test_event_queue(void) {
+    PlatformEventQueue queue;
+    CHECK_OK(platform_queue_init(&queue, engine_default_allocator()));
+    PlatformWindow *a = (PlatformWindow *)(uintptr_t)0x10;   /* identity only, never dereferenced */
+    PlatformWindow *b = (PlatformWindow *)(uintptr_t)0x20;
+    platform_queue_push(&queue, NULL, a, PLATFORM_EVENT_WINDOW_FRAMEBUFFER_RESIZED, 1, 1);
+    platform_queue_push(&queue, NULL, b, PLATFORM_EVENT_WINDOW_FRAMEBUFFER_RESIZED, 2, 2);
+    platform_queue_push(&queue, NULL, a, PLATFORM_EVENT_WINDOW_FRAMEBUFFER_RESIZED, 3, 3);
+    CHECK(queue.count == 2, "a second resize for one window was not coalesced");
+    platform_queue_push(&queue, NULL, a, PLATFORM_EVENT_WINDOW_CLOSE_REQUESTED, 0, 0);
+    platform_queue_purge_window(&queue, b);
+    CHECK(queue.count == 2, "purge removed the wrong events");
+
+    PlatformEvent event = {0};
+    CHECK(platform_queue_pop(&queue, &event) && event.window == a && event.width == 3, "first event is not a's updated resize");
+    CHECK(platform_queue_pop(&queue, &event) && event.type == PLATFORM_EVENT_WINDOW_CLOSE_REQUESTED, "second event is not the close");
+    CHECK(!platform_queue_pop(&queue, &event), "pop returned true on an empty queue");
+
+    for (uint32_t i = 0; i < PLATFORM_EVENT_QUEUE_CAPACITY + 5; i++) {
+        platform_queue_push(&queue, NULL, a, PLATFORM_EVENT_WINDOW_CLOSE_REQUESTED, 0, 0);
+    }
+    CHECK(queue.count == PLATFORM_EVENT_QUEUE_CAPACITY, "queue exceeded its capacity");
+    platform_queue_destroy(&queue, engine_default_allocator());
+    return 0;
+}
+
+#if defined(__linux__)
+static void *failing_alloc(const EngineAllocator *allocator, size_t size, size_t alignment) {
+    (void)size;
+    (void)alignment;
+    ++*(int *)allocator->user_data;   /* proves whether the allocator was reached */
+    return NULL;
+}
+
+static void noop_free(const EngineAllocator *allocator, void *memory) {
+    (void)allocator;
+    (void)memory;
+}
+
+/* PLATFORM-033: validate, then probe without allocating, then allocate. With
+ * no X server reachable the result is NOT_SUPPORTED even for an always-NULL
+ * allocator, and the allocator is never called. Linux only: the other
+ * backends cannot be made to lack a display from inside a test. */
+static int test_init_probes_before_allocating(void) {
+    const char *saved_display = getenv("DISPLAY");
+    char *display_copy = saved_display ? strdup(saved_display) : NULL;
+    const char *saved_system = getenv("NAYLA_LINUX_WINDOW_SYSTEM");
+    char *system_copy = saved_system ? strdup(saved_system) : NULL;
+    unsetenv("DISPLAY");
+    CHECK(setenv("NAYLA_LINUX_WINDOW_SYSTEM", "x11", 1) == 0, "setenv failed");
+
+    int calls = 0;
+    EngineAllocator failing = {failing_alloc, noop_free, &calls};
+    char sentinel = 0;
+    Platform *p = (Platform *)&sentinel;   /* non-NULL, so the NULL check below is not vacuous */
+    EngineResult result = platform_init(&p, &failing, NULL);
+
+    if (display_copy) { setenv("DISPLAY", display_copy, 1); }
+    if (system_copy) { setenv("NAYLA_LINUX_WINDOW_SYSTEM", system_copy, 1); } else { unsetenv("NAYLA_LINUX_WINDOW_SYSTEM"); }
+    free(display_copy);
+    free(system_copy);
+
+    CHECK(result == ENGINE_RESULT_NOT_SUPPORTED, "platform_init returned %s, expected NOT_SUPPORTED", engine_result_name(result));
+    CHECK(p == NULL, "platform_init left *out_platform non-NULL");
+    CHECK(calls == 0, "the allocator was called %d times before the probe failed", calls);
+    return 0;
+}
+
+/* X11 sizes are 16-bit on the wire, so 65536 must be refused up front
+ * (NOT_SUPPORTED, nothing created) instead of wrapping to 0 and killing the
+ * process through Xlib's default error handler. Needs a reachable window
+ * system; without one platform_init fails first and there is nothing to test
+ * (the Linux CI jobs under Xvfb run it). */
+static int test_oversize_window_is_refused(void) {
+    Platform *platform = NULL;
+    EngineResult init = platform_init(&platform, NULL, NULL);
+    if (init != ENGINE_RESULT_SUCCESS) {
+        fprintf(stderr, "skip: no window system reachable; oversize window size not exercised\n");
+        return 0;
+    }
+    char sentinel = 0;
+    PlatformWindow *const poison = (PlatformWindow *)&sentinel;
+    PlatformWindowDesc too_wide = {"smoke", 65536u, 100, 0};
+    PlatformWindowDesc too_tall = {"smoke", 100, 65536u, 0};
+    const PlatformWindowDesc *descs[] = {&too_wide, &too_tall};
+    for (size_t i = 0; i < 2; i++) {
+        PlatformWindow *w = poison;
+        EngineResult result = platform_window_create(&w, platform, NULL, descs[i]);
+        if (result == ENGINE_RESULT_SUCCESS) {
+            platform_window_destroy(w);   /* the check below fails; do not leak */
+        }
+        CHECK(result == ENGINE_RESULT_NOT_SUPPORTED, "case %zu returned %s, expected NOT_SUPPORTED", i, engine_result_name(result));
+        CHECK(w == NULL, "case %zu left *out_window non-NULL", i);
+    }
+    platform_shutdown(platform);
+    return 0;
+}
+#endif
+
 static const TestCase tests[] = {
     {"unit/platform_smoke: time is non-decreasing and never UINT64_MAX", test_time_non_decreasing},
     {"unit/platform_smoke: thread id is non-zero and stable", test_thread_id_non_zero_and_stable},
@@ -174,6 +302,12 @@ static const TestCase tests[] = {
     {"unit/platform_smoke: platform_init argument rules", test_platform_init_rules},
     {"unit/platform_smoke: platform_window_create validation order", test_window_create_rules},
     {"unit/platform_smoke: NULL tolerance", test_null_tolerance},
+    {"unit/platform_smoke: title sanitising replaces invalid UTF-8", test_title_sanitize},
+    {"unit/platform_smoke: event queue coalesces, bounds and purges", test_event_queue},
+#if defined(__linux__)
+    {"unit/platform_smoke: platform_init probes before allocating", test_init_probes_before_allocating},
+    {"unit/platform_smoke: oversize window size is refused", test_oversize_window_is_refused},
+#endif
 };
 
 int main(void) {

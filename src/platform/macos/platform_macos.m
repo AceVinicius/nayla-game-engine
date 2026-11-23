@@ -9,14 +9,10 @@
 
 #import <AppKit/AppKit.h>
 #include <math.h>
-#include <string.h>
 
 #include "src/platform/api.h"
 #include "src/platform/native.h"
 #include "src/platform/common/platform_common.h"
-
-/* PLATFORM-052: a fixed capacity; the queue is allocated once at platform_init. */
-#define NAYLA_EVENT_QUEUE_CAPACITY 64u
 
 @class NaylaAppDelegate;
 @class NaylaWindowDelegate;
@@ -25,8 +21,7 @@ struct Platform {
     const EngineAllocator *allocator;   /* resolved once at init (PLATFORM-031) */
     const EngineLogger    *logger;      /* stored unchanged (PLATFORM-032) */
     NaylaAppDelegate      *app_delegate; /* +1, owned (ADR-011 Decision 4) */
-    PlatformEvent         *queue;       /* fixed array, allocated at init (PLATFORM-052) */
-    uint32_t               queue_count;
+    PlatformEventQueue     queue;       /* fixed array, allocated at init (PLATFORM-052) */
     PlatformWindow        *windows;     /* live windows, doubly linked */
 };
 
@@ -62,40 +57,6 @@ struct PlatformWindow {
 - (instancetype)initWithWindow:(PlatformWindow *)window;
 - (void)detach;
 @end
-
-/* ---- Event queue (PLATFORM-051..053) ------------------------------------ */
-
-/* PLATFORM-052: a newer FRAMEBUFFER_RESIZED updates the queued one in place.
- * A full queue drops the event with a WARN; state queries stay correct. */
-static void queue_push(Platform *platform, PlatformWindow *window, int32_t type,
-                       uint32_t width, uint32_t height) {
-    if (type == PLATFORM_EVENT_WINDOW_FRAMEBUFFER_RESIZED) {
-        for (uint32_t i = 0; i < platform->queue_count; i++) {
-            PlatformEvent *queued = &platform->queue[i];
-            if (queued->window == window && queued->type == type) {
-                queued->width = width;
-                queued->height = height;
-                return;
-            }
-        }
-    }
-    if (platform->queue_count == NAYLA_EVENT_QUEUE_CAPACITY) {
-        ENGINE_LOG_WARN(platform->logger, "Platform", "event queue full: dropped a window event (PLATFORM-052)");
-        return;
-    }
-    platform->queue[platform->queue_count++] = (PlatformEvent){type, window, width, height};
-}
-
-/* PLATFORM-044 / PLATFORM-053: removes every queued event for `window`, keeping order. */
-static void queue_purge_window(Platform *platform, const PlatformWindow *window) {
-    uint32_t kept = 0;
-    for (uint32_t i = 0; i < platform->queue_count; i++) {
-        if (platform->queue[i].window != window) {
-            platform->queue[kept++] = platform->queue[i];
-        }
-    }
-    platform->queue_count = kept;
-}
 
 /* ---- Window state (PLATFORM-042, PLATFORM-043) --------------------------- */
 
@@ -134,7 +95,7 @@ static void window_sync_size(PlatformWindow *window) {
     window->reported_width = width;
     window->reported_height = height;
     if (!window->creating) {
-        queue_push(window->platform, window, PLATFORM_EVENT_WINDOW_FRAMEBUFFER_RESIZED, width, height);
+        platform_queue_push(&window->platform->queue, window->platform->logger, window, PLATFORM_EVENT_WINDOW_FRAMEBUFFER_RESIZED, width, height);
     }
 }
 
@@ -144,7 +105,7 @@ static void window_request_close(PlatformWindow *window) {
         return;
     }
     window->should_close = true;
-    queue_push(window->platform, window, PLATFORM_EVENT_WINDOW_CLOSE_REQUESTED, 0, 0);
+    platform_queue_push(&window->platform->queue, window->platform->logger, window, PLATFORM_EVENT_WINDOW_CLOSE_REQUESTED, 0, 0);
 }
 
 /* Releases the OS objects of a window in PLATFORM-044 order: the back pointer
@@ -295,16 +256,13 @@ EngineResult platform_init(Platform **out_platform,
     if (!platform) {
         return ENGINE_RESULT_OUT_OF_MEMORY;
     }
-    PlatformEvent *queue = engine_alloc(resolved, sizeof *queue * NAYLA_EVENT_QUEUE_CAPACITY, _Alignof(PlatformEvent));
-    if (!queue) {
+    if (platform_queue_init(&platform->queue, resolved) != ENGINE_RESULT_SUCCESS) {
         engine_free(resolved, platform);
         return ENGINE_RESULT_OUT_OF_MEMORY;
     }
     platform->allocator = resolved;
     platform->logger = logger;
     platform->app_delegate = nil;
-    platform->queue = queue;
-    platform->queue_count = 0;
     platform->windows = NULL;
 
     @autoreleasepool {
@@ -316,7 +274,7 @@ EngineResult platform_init(Platform **out_platform,
         [NSApp finishLaunching];
         platform->app_delegate = [[NaylaAppDelegate alloc] initWithPlatform:platform];
         if (!platform->app_delegate) {
-            engine_free(resolved, queue);
+            platform_queue_destroy(&platform->queue, resolved);
             engine_free(resolved, platform);
             ENGINE_LOG_ERROR(logger, "Platform", "platform_init: NaylaAppDelegate allocation returned nil (AppKit gives no error detail, PLATFORM-034)");
             return ENGINE_RESULT_NOT_SUPPORTED;
@@ -349,7 +307,7 @@ void platform_shutdown(Platform *platform) {
         platform->app_delegate = nil;
     }
     /* The pool above has ended, so the OS objects are gone before the structs (PLATFORM-044). */
-    engine_free(allocator, platform->queue);
+    platform_queue_destroy(&platform->queue, allocator);
     engine_free(allocator, platform);
 }
 
@@ -359,21 +317,11 @@ EngineResult platform_window_create(PlatformWindow **out_window,
                                     Platform *platform,
                                     const EngineAllocator *allocator,
                                     const PlatformWindowDesc *desc) {
-    if (!out_window) {
-        return ENGINE_RESULT_INVALID_ARGUMENT;
+    const EngineAllocator *resolved = NULL;
+    EngineResult checked = platform_window_create_check(out_window, platform, allocator, desc, &resolved);
+    if (checked != ENGINE_RESULT_SUCCESS) {
+        return checked;
     }
-    *out_window = NULL;
-
-    /* PLATFORM-041 validation. */
-    if (!platform || !desc || !desc->title || desc->width == 0 || desc->height == 0 ||
-        (desc->flags & ~PLATFORM_WINDOW_RESIZABLE) != 0) {
-        return ENGINE_RESULT_INVALID_ARGUMENT;
-    }
-    const EngineAllocator *resolved = platform_resolve_allocator(allocator);
-    if (!resolved) {
-        return ENGINE_RESULT_INVALID_ARGUMENT;
-    }
-
     @autoreleasepool {
         NSWindowStyleMask mask = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable;
         if (desc->flags & PLATFORM_WINDOW_RESIZABLE) {
@@ -457,7 +405,7 @@ void platform_window_destroy(PlatformWindow *window) {
     if (window->next) {
         window->next->prev = window->prev;
     }
-    queue_purge_window(platform, window);
+    platform_queue_purge_window(&platform->queue, window);
     /* The pool above has ended, so the OS objects are gone before the struct (PLATFORM-044). */
     engine_free(allocator, window);
 }
@@ -546,11 +494,5 @@ void platform_wait_events(Platform *platform, uint64_t timeout_ns) {
 }
 
 bool platform_next_event(Platform *platform, PlatformEvent *out_event) {
-    if (!platform || !out_event || platform->queue_count == 0) {
-        return false;
-    }
-    *out_event = platform->queue[0];
-    memmove(&platform->queue[0], &platform->queue[1], (platform->queue_count - 1) * sizeof(PlatformEvent));
-    platform->queue_count--;
-    return true;
+    return platform && platform_queue_pop(&platform->queue, out_event);
 }
