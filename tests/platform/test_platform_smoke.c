@@ -95,7 +95,7 @@ static int test_platform_init_rules(void) {
 static int test_window_create_rules(void) {
     PlatformWindowDesc desc = {"smoke", 640, 480, 0};
     char sentinel = 0;
-    Platform *platform = (Platform *)&sentinel;     /* never dereferenced by the stub */
+    Platform *platform = (Platform *)&sentinel;     /* only used by calls that fail validation first */
     PlatformWindow *const poison = (PlatformWindow *)&sentinel;
     PlatformWindow *w = poison; /* reset before every call so "left non-NULL" can fail */
 
@@ -136,10 +136,11 @@ static int test_window_create_rules(void) {
         platform_shutdown(real);
     } else {
         fprintf(stderr, "skip: no window system reachable; window create checked only for validation\n");
-#if !defined(__APPLE__)
-        /* The stub never dereferences the Platform, so the sentinel is safe here.
-         * The macOS backend dereferences it after creating an NSWindow, so the
-         * NOT_SUPPORTED check is not run with the sentinel on macOS. */
+#if defined(_WIN32)
+        /* Only the Win32 stub never dereferences the Platform, so the sentinel is
+         * safe there. The macOS and Linux backends dereference it (NSWindow
+         * creation; the ops table), so the NOT_SUPPORTED check is not run with
+         * the sentinel on them. */
         w = poison;
         EXPECT(platform_window_create(&w, platform, NULL, &desc), ENGINE_RESULT_NOT_SUPPORTED);
         CHECK(w == NULL, "platform_window_create left *out_window non-NULL");
