@@ -278,11 +278,11 @@ cmd_inspect() {
 # definition or heading, so lists and code blocks that belong to it come along.
 cmd_rule() {
     [ $# -ge 1 ] || die "usage: factory rule <ID>... (e.g. PLAT-INV-3 CORE-LOG-010)"
-    local files id status=0
-    files="$(find "$PROJECT_DIR/docs" -name '*.md' | sort)"
-    [ -n "$files" ] || die "no docs/**/*.md under $PROJECT_DIR"
+    local files=() f id status=0
+    # An array (bash 3.2 has no mapfile): the checkout path may contain spaces.
+    while IFS= read -r f; do files+=("$f"); done < <(find "$PROJECT_DIR/docs" -name '*.md' | sort)
+    [ ${#files[@]} -gt 0 ] || die "no docs/**/*.md under $PROJECT_DIR"
     for id in "$@"; do
-        # shellcheck disable=SC2086 # one path per line, no spaces in docs/
         awk -v id="$id" -v root="$PROJECT_DIR/" '
             FNR == 1 { on = 0; code = 0; blanks = 0 }
             {
@@ -303,7 +303,7 @@ cmd_rule() {
                 }
                 if (fence) code = !code
             }
-            END { exit found ? 0 : 1 }' $files || { echo "$id: not found"; status=1; }
+            END { exit found ? 0 : 1 }' "${files[@]}" || { echo "$id: not found"; status=1; }
     done
     return $status
 }
