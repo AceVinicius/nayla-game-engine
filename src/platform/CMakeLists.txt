@@ -43,12 +43,8 @@ if(NAYLA_PLATFORM_BACKEND STREQUAL "linux")
   # fractional-scale-v1 is a staging protocol; it first shipped in wayland-protocols 1.31.
   pkg_check_modules(NAYLA_WAYLAND_PROTOCOLS REQUIRED wayland-protocols>=1.31)
   pkg_get_variable(_nayla_wl_scanner_pc wayland-scanner wayland_scanner)
-  if(_nayla_wl_scanner_pc)
-    set(_nayla_wl_scanner "${_nayla_wl_scanner_pc}")
-  else()
-    find_program(_nayla_wl_scanner_found wayland-scanner REQUIRED)
-    set(_nayla_wl_scanner "${_nayla_wl_scanner_found}")
-  endif()
+  get_filename_component(_nayla_wl_scanner_hint "${_nayla_wl_scanner_pc}" DIRECTORY)
+  find_program(_nayla_wl_scanner wayland-scanner REQUIRED HINTS "${_nayla_wl_scanner_hint}")
   pkg_get_variable(_nayla_wl_protocols_dir wayland-protocols pkgdatadir)
 
   set(_nayla_wl_protocols
@@ -67,6 +63,7 @@ if(NAYLA_PLATFORM_BACKEND STREQUAL "linux")
   # sources count as src/platform/linux for PLATFORM-094 is the open question in
   # issue #59; this block does not decide it.
   set(_nayla_wl_gen_dir ${CMAKE_CURRENT_BINARY_DIR}/wayland)
+  file(MAKE_DIRECTORY "${_nayla_wl_gen_dir}")
   set(_nayla_linux_generated "")
   foreach(_nayla_xml IN LISTS _nayla_wl_protocols)
     get_filename_component(_nayla_proto "${_nayla_xml}" NAME_WE)
@@ -74,22 +71,16 @@ if(NAYLA_PLATFORM_BACKEND STREQUAL "linux")
     set(_nayla_src "${_nayla_wl_gen_dir}/${_nayla_proto}-protocol.c")
     add_custom_command(
       OUTPUT "${_nayla_hdr}"
-      COMMAND ${CMAKE_COMMAND} -E make_directory "${_nayla_wl_gen_dir}"
       COMMAND "${_nayla_wl_scanner}" client-header "${_nayla_xml}" "${_nayla_hdr}"
       DEPENDS "${_nayla_xml}" "${_nayla_wl_scanner}"
       VERBATIM
     )
     add_custom_command(
       OUTPUT "${_nayla_src}"
-      COMMAND ${CMAKE_COMMAND} -E make_directory "${_nayla_wl_gen_dir}"
       COMMAND "${_nayla_wl_scanner}" private-code "${_nayla_xml}" "${_nayla_src}"
       DEPENDS "${_nayla_xml}" "${_nayla_wl_scanner}"
       VERBATIM
     )
-    # Third-party generated code: -Wpedantic is relaxed and warnings are not
-    # errors for these two files only, so the project's own sources keep
-    # nayla_target_warnings() strictness. The files are not ours to fix.
-    set_source_files_properties("${_nayla_src}" PROPERTIES COMPILE_OPTIONS "-Wno-pedantic;-Wno-error")
     list(APPEND _nayla_linux_generated "${_nayla_hdr}" "${_nayla_src}")
   endforeach()
   list(APPEND _nayla_backend_sources ${_nayla_linux_generated})
