@@ -3,7 +3,7 @@
 **Status:** Accepted (2026-11-21). Implemented and conformance-tested on macOS (PRs #37–#43); the Win32 backend (#34) and Linux windowing (decided by ADR-012; #57, #59) remain.
 **Date:** 2026-11-20
 **Amended:** 2026-11-21 (#45): `platform_wait_events` (PLATFORM-055/056, PLAT-INV-13 NULL clause, PLAT-INV-16).
-**Amended:** 2026-11-22 (#55): ADR-012 Linux windowing (PLATFORM-042, -043, -052, -071, -072, -092, -101, PLAT-INV-11, §11 item 1, §13 edge cases 3, 14, 19).
+**Amended:** 2026-11-22 (#55): ADR-012 Linux windowing (PLATFORM-036, -042, -043, -052, -071, -072, -090, -092, -101, PLAT-INV-11, §6 occlusion note, §11 item 1, §13 edge cases 3, 14, 19, §14).
 **Author:** `spec-writer`
 **Scope:** the Platform API contract for the first milestone (specs.md §47/§48): platform lifecycle, windows, events, monotonic time, thread identity, and the native-handle boundary to the future GPU surface. Binding on `src/platform/api.h`, `src/platform/native.h`, and every OS backend.
 **Supersedes:** specs.md §13 ("Platform Abstraction"), §14 ("Platform Interface"), §15 ("Platform Services"), §16 ("Platform Backend Contract"), §17 ("Native Handle Boundary"), the `platform_initialize`/`platform_shutdown` names in §37, and `platform_poll_events` in §38. specs.md remains a historical draft; where it disagrees with this document, **this document wins**. **Amends** `logging.md` CORE-LOG-082 (installing the context sources after platform initialization is no longer required, and records before that point need not carry the "unknown" sentinels, PLATFORM-026/083) and its edge case 12; both carry a note pointing here. **Widens** `result.md` §4's meaning of `ENGINE_RESULT_NOT_SUPPORTED` to OS-call failures (PLATFORM-034, issue #18); result.md carries a note.
@@ -125,7 +125,7 @@ This order fixes the backend's sequence: validate arguments, then probe the wind
 
 **PLATFORM-035 (`platform_shutdown`).** `platform_shutdown` returns `void` (CORE-RESULT-017) and is a no-op for `NULL`. Its precondition is that every `PlatformWindow` created from this `Platform` has been destroyed. If windows are still live, the backend logs at `ERROR` and returns without releasing anything, so it leaks rather than invalidating pointers the caller still holds (the CORE-ALLOC-092 trade). It logs through the stored logger but never reconfigures or disposes of the allocator or logger (CORE-ALLOC-062, CORE-LOG-002).
 
-**PLATFORM-036 (one live `Platform` per process).** Window-system state is process-global in the OS (the `NSApplication` singleton, Win32 window-class registration, the display connection). At most one `Platform` may be live at a time. Violating this is a caller error and the behaviour is **undefined**. Backends MUST NOT add a process-global flag to detect it (PLATFORM-090). Sequential re-initialization (`platform_init` after `platform_shutdown` in one process) is supported: backends tolerate once-per-process OS setup that persists (the `NSApp` singleton, Win32 DPI awareness, an already-registered window class).
+**PLATFORM-036 (one live `Platform` per process).** Window-system state is process-global in the OS (the `NSApplication` singleton, Win32 window-class registration, the display connection). At most one `Platform` may be live at a time. Violating this is a caller error and the behaviour is **undefined**. Backends MUST NOT add a process-global flag to detect it (PLATFORM-090). Sequential re-initialization (`platform_init` after `platform_shutdown` in one process) is supported: backends tolerate once-per-process OS setup that persists (the `NSApp` singleton, Win32 DPI awareness, an already-registered window class, GTK loaded by libdecor's plugin, which stays until process exit, ADR-012 Decision 2).
 
 **PLATFORM-037 (lifetimes).** The allocator and logger passed to `platform_init` MUST outlive the `Platform` (CORE-ALLOC-065, CORE-LOG-004). The allocator passed to `platform_window_create` MUST outlive that window.
 
@@ -226,7 +226,7 @@ if (fb_width == 0 || fb_height == 0) platform_wait_events(platform, IDLE_NS);   
 else                                 platform_pump_events(platform);            /* present paces */
 ```
 
-A window that is hidden but not minimized (occluded) reports a non-zero framebuffer, so this amendment does not pace it; pacing it is the GPU contract's job, as an occluded or skipped present result (#45). `IDLE_NS` and `TICK_NS` are the application's constants, not contract. The values chosen in #45 are 100 ms idle and 16.7 ms pre-GPU tick.
+On Wayland with xdg-shell v6, a fully occluded window is `suspended` and reports `0 × 0` (PLATFORM-042), so the idle wait paces it (ADR-012 Decision 3). On Win32, Cocoa, X11, and Wayland without v6, a window that is hidden but not minimized (occluded) keeps a non-zero framebuffer, so this amendment does not pace it; pacing it is the GPU contract's job, as an occluded or skipped present result (#45). `IDLE_NS` and `TICK_NS` are the application's constants, not contract. The values chosen in #45 are 100 ms idle and 16.7 ms pre-GPU tick.
 
 ---
 
@@ -309,7 +309,7 @@ The application owns and sequences `Platform`, just as it owns the logger. Wheth
 
 ## 9. Placement, targets, and dependency direction
 
-**PLATFORM-090 (no engine state at file scope).** No backend translation unit holds file-scope mutable engine state. Per-window lookup from an OS callback uses OS per-window storage (Win32 `GWLP_USERDATA`, a Cocoa delegate object, a list owned by the `Platform`), never a global table. OS-owned process singletons (`NSApp`) are the OS's state and are outside this rule.
+**PLATFORM-090 (no engine state at file scope).** No backend translation unit holds file-scope mutable engine state. Per-window lookup from an OS callback uses OS per-window storage (Win32 `GWLP_USERDATA`, a Cocoa delegate object, a list owned by the `Platform`), never a global table. OS-owned process singletons (`NSApp`) are the OS's state and are outside this rule, as is library-owned process state that ADR-012 accepts: the state `XInitThreads` sets, the fallback process-global `XSetIOErrorHandler` if #57 needs it (it touches no engine state), and GTK loaded by libdecor's plugin (ADR-012 Decisions 2, 4, 6). No engine state lives at file scope either way.
 
 **PLATFORM-091 (nothing joins `engine_foundation`).** `engine_foundation` still depends on nothing (CORE-ALLOC-081). The logger receives time and thread ids through callbacks (CORE-LOG-041). No clock or thread-id code moves into foundation, and foundation does not link any platform target.
 
@@ -373,7 +373,7 @@ Per ADR-012 Decision 1, `engine_platform_linux` contains both a Wayland path and
 
 **PLAT-INV-10.** `platform_window_create` returns `INVALID_ARGUMENT` for each PLATFORM-041 case (zero width, zero height, `NULL` title, unknown flag bit) and leaves `*out_window == NULL`. *(conformance: window)*
 
-**PLAT-INV-11.** A newly created window has `should_close == false`, a non-zero framebuffer size (unless minimized), and no queued event (PLATFORM-041). On Wayland "minimized" means `suspended`, which also covers occlusion (PLATFORM-042); a window is visible on success (PLATFORM-041), so a fresh window is not suspended and the non-zero check holds. Without xdg-shell v6 the size is non-zero in every case. `platform_window_get_native` returns `SUCCESS` with `type != NONE`, and the fields match the table row for the returned `type`: every field the row gives as `NULL` or `0` holds that value, and every other field is non-`NULL`/non-zero. *(conformance: window)*
+**PLAT-INV-11.** A newly created window has `should_close == false`, a non-zero framebuffer size (unless minimized), and no queued event (PLATFORM-041). On Wayland "minimized" means `suspended`, which also covers occlusion (PLATFORM-042); a window is visible on success (PLATFORM-041), so a fresh window is not suspended and the non-zero check holds. A compositor that reports `suspended` already in the first configure (e.g. screen locked) is covered by "unless minimized"; headless Weston may never send `suspended` (ADR-012 Decision 5), so the conformance suite cannot distinguish that case. Without xdg-shell v6 the size is non-zero in every case. `platform_window_get_native` returns `SUCCESS` with `type != NONE`, and the fields match the table row for the returned `type`: every field the row gives as `NULL` or `0` holds that value, and every other field is non-`NULL`/non-zero. *(conformance: window)*
 
 **PLAT-INV-12.** `platform_next_event` on an empty queue returns `false` without writing. After `platform_window_destroy`, no queued event refers to the destroyed window. The second clause is non-vacuous only when an event was pending, and the API has no portable way to synthesize one (no input or resize call), so PLATFORM-044's purge is also review-enforced. *(conformance: window)*
 
@@ -413,7 +413,7 @@ Per ADR-012 Decision 1, `engine_platform_linux` contains both a Wayland path and
 
 ## 14. Migration impact
 
-Done (PRs #37–#43) except the Win32 backend (#34) and Linux windowing (§11 item 1, #28). The #45 amendment (`platform_wait_events`) is implemented by #50, in the rows marked #50.
+Done (PRs #37–#43) except the Win32 backend (#34) and Linux windowing (ADR-012: selection and X11 #57, CI Xvfb #58, Wayland #59, CI Weston #60). The #45 amendment (`platform_wait_events`) is implemented by #50, in the rows marked #50.
 
 | File | Change |
 |---|---|
@@ -423,13 +423,13 @@ Done (PRs #37–#43) except the Win32 backend (#34) and Linux windowing (§11 it
 | `src/CMakeLists.txt` | At the end, after every target exists: the PLAT-INV-4 `forbid_transitive_link` calls, one per forbidden name. |
 | `cmake/Common.cmake`, `forbid-pattern.sh` (PR #38) | `forbid-pattern.sh` takes a basename-regex exemption and a case-insensitive flag (PLAT-INV-3(b)). `forbid_transitive_link` takes the invariant ID. |
 | Root `CMakeLists.txt` (ADR-011) | `enable_language(OBJC)` guarded by `NAYLA_PLATFORM_BACKEND STREQUAL "macos"`. |
-| `main.c` | Install the adapters after `engine_log_init`, then `platform_init`/window/loop/teardown per PLATFORM-083. On Linux the application logs and exits with `NOT_SUPPORTED` until the ADR. |
+| `main.c` | Install the adapters after `engine_log_init`, then `platform_init`/window/loop/teardown per PLATFORM-083. On Linux the application logs and exits with `NOT_SUPPORTED` until the ADR-012 implementation lands (#57). |
 | `tests/platform/` (new), `tests/CMakeLists.txt` | The two conformance tests, the header compile checks, and `unit/platform_smoke` (PLATFORM-100); `add_subdirectory(platform)`. |
 | `src/platform/api.h` (#50) | Declare `platform_wait_events` (PLATFORM-055). |
 | Platform backends (#50) | macOS implements PLATFORM-055/056. `platform_stub.c` (Win32 and Linux until their windowing work) defines a `NULL`-tolerant function that returns at once; no `Platform` exists there. |
 | `main.c` (#50) | The loop calls `platform_wait_events` with `TICK_NS` (16.7 ms), or `IDLE_NS` (100 ms) while the framebuffer is `0 × 0`, instead of `platform_pump_events`. Each constant carries a comment citing #45. |
 | `tests/platform/` (#50) | The PLAT-INV-13 `platform_wait_events(NULL, t)` row in `contract/platform_stateless`; the PLAT-INV-16 rows in `contract/platform_window`. |
-| CI (`ci.yml`) | Ubuntu jobs (including sanitizers) set `NAYLA_TEST_NO_DISPLAY=1`; macOS jobs do not (PLATFORM-101). |
+| CI (`ci.yml`) | Until #58, Ubuntu jobs (including sanitizers) set `NAYLA_TEST_NO_DISPLAY=1`. From #58 they run under Xvfb (the sanitizer job with `x11` forced) and stop setting it; #60 adds headless Weston and a forced-`x11` conformance run (ADR-012 Decision 5). macOS jobs do not set it (PLATFORM-101). |
 
 Backend mapping for PLATFORM-055 (informative, not normative; each backend still converts the timeout per PLATFORM-056 and then runs its pump). Backends clamp a large finite timeout to the OS argument range: Win32's `DWORD` milliseconds must stay below `INFINITE`, and `poll` takes `int` milliseconds. The one normative point is PLATFORM-056's: clamping never yields an infinite wait or `0`.
 
@@ -437,7 +437,7 @@ Backend mapping for PLATFORM-055 (informative, not normative; each backend still
 |---|---|
 | Win32 | `MsgWaitForMultipleObjectsEx(0, NULL, ms, QS_ALLINPUT, MWMO_INPUTAVAILABLE)`. `MWMO_INPUTAVAILABLE` also returns for input already in the queue but not yet seen. |
 | macOS | `nextEventMatchingMask:untilDate:dequeue:YES` with the timeout as the date (`distantPast` for `0`, `distantFuture` for `UINT64_MAX`). The event it dequeues is sent, then the normal pump runs. |
-| X11 | If `XPending` is zero, `poll` on `ConnectionNumber(display)`. |
-| Wayland | Loop `wl_display_prepare_read` while dispatching pending events, then `wl_display_flush`, then `poll` on the display fd, then `wl_display_read_events` (or `wl_display_cancel_read` on timeout). |
+| X11 | `XFlush`; if `XEventsQueued(QueuedAfterReading)` is 0, `poll` on `ConnectionNumber(display)`; then pump (ADR-012 Decision 4). |
+| Wayland | Pump first with a non-blocking `libdecor_dispatch(ctx, 0)`. If that queued an engine event or changed window state, return without blocking; only otherwise block in `libdecor_dispatch(ctx, ms)`, then pump. `EINTR`/`EAGAIN` are retried or ignored, not loss (ADR-012 Decisions 4 and 6). |
 
-The suggested order is: header + `native.h` + static/grep checks (no backend needed), then the time/thread-only `engine_platform_linux` plus `engine_platform_win32` and `engine_platform_macos` with the conformance suite, then `main.c`. Linux windowing waits for its ADR. The one behaviour change is #50's: `main.c`'s loop waits instead of spinning.
+The suggested order is: header + `native.h` + static/grep checks (no backend needed), then the time/thread-only `engine_platform_linux` plus `engine_platform_win32` and `engine_platform_macos` with the conformance suite, then `main.c`. Linux windowing follows ADR-012's order: #57, #58, #59, #60. The one behaviour change is #50's: `main.c`'s loop waits instead of spinning.
