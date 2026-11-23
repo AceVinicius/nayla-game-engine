@@ -56,8 +56,10 @@
  *       frame's xdg_toplevel and xdg_surface, which must precede wl_surface
  *       destruction.
  *   [8] wl_display_connect(NULL): WAYLAND_SOCKET, when set, is consumed (unset)
- *       by the first connect that finds it set, even when that connect fails, so
- *       a later probe or re-init in one process cannot use it again.
+ *       once the fd parses and is valid, even when the connection setup on that
+ *       fd then fails (it returns NULL without unsetting it if the value does
+ *       not parse or the fd is EBADF), so a later probe or re-init in one
+ *       process cannot use it again.
  *   [9] libdecor_new (called from adopt) runs the plugin's init, which in the
  *       cairo plugin may do an unbounded roundtrip. The probe already proved
  *       the compositor answers, so the risk is low; it is not bounded here.
@@ -155,7 +157,8 @@ typedef struct WaylandWindow {
 /* ---- Dispatch and loss (Decision 4, Decision 6) ----------------------------- */
 
 /* The dispatch of [4] without libdecor, for the setup phase before a libdecor
- * context exists. Returns the dispatched count or -errno. */
+ * context exists. Returns >= 0 on success (the count is not meaningful to the
+ * callers) or -errno. */
 static int wayland_dispatch(struct wl_display *display, int timeout_ms) {
     int count = 0;
     while (wl_display_prepare_read(display) != 0) {
