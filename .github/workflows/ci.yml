@@ -52,6 +52,15 @@ jobs:
           "$RUNNER_TEMP/tools/bin/pip" install --upgrade cmake ninja
           echo "$RUNNER_TEMP/tools/bin" >> "$GITHUB_PATH"
 
+      # Linux backend build dependencies (ADR-012 follow-up 2): pkg-config finds
+      # x11, wayland-client and libdecor-0; wayland-scanner (libwayland-bin) and
+      # wayland-protocols supply the protocol glue. macOS needs none of these.
+      - name: Install Linux backend dependencies
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libx11-dev libwayland-dev libwayland-bin wayland-protocols libdecor-0-dev
+
       # Warnings are errors: the project's bar is zero warnings.
       - name: Configure
         if: needs.changes.outputs.code == 'true'
@@ -91,6 +100,12 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/tools"
           "$RUNNER_TEMP/tools/bin/pip" install --upgrade cmake ninja
           echo "$RUNNER_TEMP/tools/bin" >> "$GITHUB_PATH"
+
+      # Linux backend build dependencies (ADR-012 follow-up 2); see build-test.
+      - name: Install Linux backend dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libx11-dev libwayland-dev libwayland-bin wayland-protocols libdecor-0-dev
 
       - name: Configure
         if: needs.changes.outputs.code == 'true'
