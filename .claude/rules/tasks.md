@@ -1,3 +1,8 @@
+---
+paths:
+  - ".github/ISSUE_TEMPLATE/**"
+---
+
 # Task Rules
 
 A task is a GitHub issue created from the `Task` template. It defines:

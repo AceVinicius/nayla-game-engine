@@ -2,9 +2,9 @@
 
 - `docs/spec/architecture.md` → condensed architecture (points to CLAUDE.md for invariants)
 - `docs/spec/specs.md` → full draft technical specification
-- `docs/architecture/` → context-loading and tooling-layer notes
-- `docs/adr/` → architectural decisions (none recorded yet)
+- `docs/spec/core/` → per-subsystem contracts (types, result, allocator, logging, platform)
+- `docs/adr/` → architectural decisions
 
-Per-subsystem contract docs (`docs/spec/core/`, `gpu/`, `platform/`, `renderer/`) are planned but not yet split out of `specs.md` — see `spec-writer`.
+Agent context loading and tooling: `.claude/CLAUDE.md` and `.claude/rules/tooling.md`.
 
-Load only the documents referenced by the task.
+Load only the documents referenced by the task; read specs by rule ID (`tools/factory toc`, `tools/factory rule`).

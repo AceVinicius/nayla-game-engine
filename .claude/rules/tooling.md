@@ -8,7 +8,11 @@ Use `tools/factory` for routine operations; it keeps output short:
 - `tools/factory prove <file> <patch-cmd> <test-regex>`: prove a check bites (back up, inject, rebuild, run, restore, verify).
 - `tools/factory build {debug|release}`, `tools/factory test {unit|contract|integration|architecture|all}`.
 - `tools/factory pr-wait <pr>`: wait for CI and Copilot on a PR; print only failures and review comments.
-- `tools/factory status`, `search <pattern>`, `inspect <path>`.
+- `tools/factory issue <n>`: issue title, state and body (no comments). Use instead of `gh issue view`.
+- `tools/factory pr-comments <pr>`: unresolved, non-outdated review threads with path:line and comment id.
+- `tools/factory status`: build directories, generator, branch.
+
+Build failures print diagnostics only (compiler messages and build-time check `ERROR:` blocks, repo-relative paths), never compiler command lines. To search code use Grep; to read a file use Read with a line range.
 
 Builds use Ninja when it is installed (exact timestamps). Under the Makefile generator, timestamps have 1-second resolution: an edit and revert within a second can leave stale binaries, so `prove` rebuilds cleanly under Makefiles and touches the restored file so every generator rebuilds it.
 

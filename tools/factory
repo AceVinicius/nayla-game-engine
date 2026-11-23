@@ -53,9 +53,25 @@ build() {
     [ "$clean" = clean ] && args+=(--clean-first)
     local log; log="$(mktemp)"
     cmake "${args[@]}" >"$log" 2>&1; local rc=$?
-    grep -E 'warning|error' "$log" | head -20
+    diagnostics "$log" | head -20
     rm -f "$log"
     return $rc
+}
+
+# Diagnostic lines only: compiler/linker messages, FAILED targets, and each
+# "ERROR:" block from the build-time checks (cmake/forbid-pattern.sh) with the
+# lines it quotes. Drops compiler command lines (they contain -Werror),
+# "N errors generated." and repeats; paths become repo-relative.
+diagnostics() {
+    awk -v p="$PROJECT_DIR/" '
+        { while ((i = index($0, p)) > 0) $0 = substr($0, 1, i - 1) substr($0, i + length(p)) }
+        /^ERROR:/ { block = 5; emit(); next }
+        block > 0 && !/^(\[[0-9]|FAILED|ninja|make|gmake)/ { block--; emit(); next }
+        { block = 0 }
+        /(cc|c\+\+|clang|gcc|g\+\+|cl\.exe|ld)[[:space:]].* -[co][[:space:]]/ { next }
+        /^[0-9]+ (warning|error)s? generated/ { next }
+        /warning|error|Error|FAILED|Undefined symbols/ { emit() }
+        function emit() { if (!seen[$0]++) print }' "$1"
 }
 
 # Runs ctest; prints failing tests and their output only.
@@ -178,7 +194,8 @@ cmd_prove() {
 }
 
 # gh prints "hint:" blocks on some calls; drop them so they never reach context.
-gh_q() { gh "$@" 2>/dev/null | grep -vE '^(hint: if you need to wait|    gh event listen|  - (It prints the first event|Add `--timeout`|Events carry no details|It misses changes|See `gh event listen|Event subscriptions are in preview))'; }
+# Exit status is gh's: grep -v finding nothing to print is not a failure.
+gh_q() { gh "$@" 2>/dev/null | { grep -vE '^(hint: if you need to wait|    gh event listen|  - (It prints the first event|Add `--timeout`|Events carry no details|It misses changes|See `gh event listen|Event subscriptions are in preview))' || true; }; }
 
 # Waits for every CI check on a PR, requests a Copilot review if none exists,
 # then prints the check summary, failing log lines and review comments.
@@ -246,6 +263,38 @@ cmd_pr_wait() {
     return $rc
 }
 
+# Issue title, state and body only: no comments, no gh hints.
+cmd_issue() {
+    [ -n "${1:-}" ] || die "usage: factory issue <number>"
+    local out
+    out="$(gh_q issue view "$1" --repo "$REPO" --json number,title,state,body \
+        -q '"#" + (.number|tostring) + " " + .title + " [" + .state + "]\n\n" + .body')"
+    [ -n "$out" ] || die "issue $1 not found (or gh is not authenticated)"
+    printf '%s\n' "$out"
+}
+
+# Unresolved, non-outdated review threads on a PR: path:line, author, first
+# comment. Resolved and outdated threads are noise for whoever fixes them.
+cmd_pr_comments() {
+    [ -n "${1:-}" ] || die "usage: factory pr-comments <pr-number>"
+    local out
+    # shellcheck disable=SC2016 # GraphQL variables, not shell
+    out="$(gh_q api graphql -F owner="${REPO%/*}" -F name="${REPO#*/}" -F pr="$1" -f query='
+        query($owner: String!, $name: String!, $pr: Int!) {
+          repository(owner: $owner, name: $name) { pullRequest(number: $pr) {
+            reviewThreads(first: 100) { pageInfo { hasNextPage } nodes {
+              isResolved isOutdated path line originalLine
+              comments(first: 1) { nodes { databaseId author { login } body } } } } } } }' \
+        -q '.data.repository.pullRequest.reviewThreads as $t
+            | ($t.nodes[] | select((.isResolved or .isOutdated) | not)
+               | .comments.nodes[0] as $c
+               | "[" + .path + ":" + ((.line // .originalLine)|tostring) + "] (id "
+                 + ($c.databaseId|tostring) + ", " + $c.author.login + ") " + $c.body),
+              (if $t.pageInfo.hasNextPage then "WARNING: more than 100 threads; only the first 100 were checked" else empty end)')" \
+        || die "PR $1 not found (or gh is not authenticated)"
+    [ -n "$out" ] && printf '%s\n' "$out" || echo "PR $1: no unresolved review threads"
+}
+
 cmd_status() {
     local type dir
     for type in debug release; do
@@ -260,16 +309,7 @@ cmd_status() {
     echo "branch: $(git -C "$PROJECT_DIR" rev-parse --abbrev-ref HEAD)  $(git -C "$PROJECT_DIR" status --short | wc -l | tr -d ' ') changed file(s)"
 }
 
-cmd_search() {
-    [ -n "${1:-}" ] || die "usage: factory search <pattern>"
-    local hits; hits="$(grep -rn -- "$1" "$PROJECT_DIR/src" "$PROJECT_DIR/tests" 2>/dev/null)"
-    [ -n "$hits" ] && printf '%s\n' "$hits" | head -50 || echo "No matches found"
-}
 
-cmd_inspect() {
-    [ -n "${1:-}" ] || die "usage: factory inspect <path>"
-    if [ -f "$1" ]; then head -40 "$1"; elif [ -d "$1" ]; then ls -la "$1"; else die "not found: $1"; fi
-}
 
 # Rule definitions in docs/ are paragraphs that start with `**<ID>`, e.g.
 # `**PLAT-INV-3.**` or `**CORE-LOG-010 (title).**`.
@@ -330,8 +370,6 @@ cmd_toc() {
         END { flush() }' "$1"
 }
 
-cmd_clean() { rm -rf "$BUILD_DEBUG" "$BUILD_RELEASE" && echo "clean: OK"; }
-
 case "${1:-status}" in
     build) shift; cmd_build "$@" ;;
     test) shift; cmd_test "$@" ;;
@@ -340,9 +378,8 @@ case "${1:-status}" in
     toc) shift; cmd_toc "$@" ;;
     prove) shift; cmd_prove "$@" ;;
     pr-wait) shift; cmd_pr_wait "$@" ;;
+    pr-comments) shift; cmd_pr_comments "$@" ;;
+    issue) shift; cmd_issue "$@" ;;
     status) cmd_status ;;
-    search) shift; cmd_search "$@" ;;
-    inspect) shift; cmd_inspect "$@" ;;
-    clean) cmd_clean ;;
-    *) die "usage: factory {check [--ref <ref>]|prove|pr-wait|rule|toc|build|test|status|search|inspect|clean}" ;;
+    *) die "usage: factory {check [--ref <ref>]|prove|pr-wait|pr-comments|issue|rule|toc|build|test|status}" ;;
 esac
