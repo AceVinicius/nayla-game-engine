@@ -426,7 +426,7 @@ Done (PRs #37–#43) except the Win32 backend (#34) and Linux windowing (ADR-012
 | `main.c` | Install the adapters after `engine_log_init`, then `platform_init`/window/loop/teardown per PLATFORM-083. On Linux the application logs and exits with `NOT_SUPPORTED` until the ADR-012 implementation lands (#57). |
 | `tests/platform/` (new), `tests/CMakeLists.txt` | The two conformance tests, the header compile checks, and `unit/platform_smoke` (PLATFORM-100); `add_subdirectory(platform)`. |
 | `src/platform/api.h` (#50) | Declare `platform_wait_events` (PLATFORM-055). |
-| Platform backends (#50) | macOS implements PLATFORM-055/056. `platform_stub.c` (Win32 and Linux until their windowing work) defines a `NULL`-tolerant function that returns at once; no `Platform` exists there. |
+| Platform backends (#50) | macOS implements PLATFORM-055/056. `platform_stub.c` (Win32 until its windowing work) defines a `NULL`-tolerant function that returns at once; no `Platform` exists there. |
 | `main.c` (#50) | The loop calls `platform_wait_events` with `TICK_NS` (16.7 ms), or `IDLE_NS` (100 ms) while the framebuffer is `0 × 0`, instead of `platform_pump_events`. Each constant carries a comment citing #45. |
 | `tests/platform/` (#50) | The PLAT-INV-13 `platform_wait_events(NULL, t)` row in `contract/platform_stateless`; the PLAT-INV-16 rows in `contract/platform_window`. |
 | CI (`ci.yml`) | Until #58, Ubuntu jobs (including sanitizers) set `NAYLA_TEST_NO_DISPLAY=1`. From #58 they run under Xvfb (the sanitizer job with `x11` forced) and stop setting it; #60 adds headless Weston and a forced-`x11` conformance run (ADR-012 Decision 5). macOS jobs do not set it (PLATFORM-101). |

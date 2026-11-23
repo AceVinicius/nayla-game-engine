@@ -247,7 +247,8 @@ static int test_init_probes_before_allocating(void) {
 
     int calls = 0;
     EngineAllocator failing = {failing_alloc, noop_free, &calls};
-    Platform *p = NULL;
+    char sentinel = 0;
+    Platform *p = (Platform *)&sentinel;   /* non-NULL, so the NULL check below is not vacuous */
     EngineResult result = platform_init(&p, &failing, NULL);
 
     if (display_copy) { setenv("DISPLAY", display_copy, 1); }

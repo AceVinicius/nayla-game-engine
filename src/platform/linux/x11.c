@@ -46,8 +46,8 @@
 /* A request longer than the server's maximum fails with BadLength, and Xlib's
  * default error handler then exits the process, so the title is capped to
  * XMaxRequestSize (the length without BIG-REQUESTS, in 4-byte units) less the
- * margin. It only matters for absurdly long titles. */
-/* ChangeProperty header (24 bytes) plus margin kept out of the title cap. */
+ * margin (the ChangeProperty header is 24 bytes). It only matters for
+ * absurdly long titles. */
 #define X11_REQUEST_MARGIN_BYTES 256
 
 typedef struct X11Platform {
