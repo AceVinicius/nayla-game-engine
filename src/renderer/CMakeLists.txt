@@ -20,4 +20,4 @@ forbid_direct_output(engine_renderer ${CMAKE_CURRENT_SOURCE_DIR})
 # ALLOC-INV-11 and PLAT-INV-4 link checks: see the end of src/CMakeLists.txt.
 
 # Strict warnings
-target_compile_options(engine_renderer PRIVATE -Wall -Wextra -Wpedantic)
+nayla_target_warnings(engine_renderer)

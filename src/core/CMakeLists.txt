@@ -20,9 +20,7 @@ forbid_direct_allocation(engine_foundation ${CMAKE_CURRENT_SOURCE_DIR} "allocato
 forbid_direct_output(engine_foundation ${CMAKE_CURRENT_SOURCE_DIR} "log_console.c")
 
 # Set strict warnings for foundation
-target_compile_options(engine_foundation PRIVATE
-  -Wall -Wextra -Wpedantic
-)
+nayla_target_warnings(engine_foundation)
 
 # Core engine library
 # Portable C code: no OS or GPU SDK headers
@@ -45,6 +43,4 @@ forbid_direct_allocation(engine_core ${CMAKE_CURRENT_SOURCE_DIR} "allocator.c")
 forbid_direct_output(engine_core ${CMAKE_CURRENT_SOURCE_DIR} "log_console.c")
 
 # Set strict warnings for core
-target_compile_options(engine_core PRIVATE
-  -Wall -Wextra -Wpedantic
-)
+nayla_target_warnings(engine_core)
