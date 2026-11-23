@@ -1,3 +1,12 @@
+---
+paths:
+  - "src/platform/**"
+  - "src/gpu/**/surface_*"
+  - "tests/platform/**"
+  - "docs/spec/core/platform.md"
+  - "docs/adr/ADR-01[0-9]-*.md"
+---
+
 # Platform Rules
 
 - OS headers stay inside platform backends, plus one surface file per native window type in each GPU backend (`src/gpu/<backend>/surface_<type>.{c,m}`, ADR-010).

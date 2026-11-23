@@ -1,9 +1,9 @@
 # Task Rules
 
-A task defines:
+A task is a GitHub issue created from the `Task` template. It defines:
 - primary agent;
-- required/optional context;
-- dependencies;
+- required/optional context, citing spec **rule IDs or sections**, not whole documents;
+- dependencies (also as GitHub "blocked by" links);
 - objective;
 - requirements;
 - acceptance criteria;
@@ -16,7 +16,9 @@ A task defines:
 Prefer:
 - 1 task;
 - 1–2 domain rules;
-- 1 relevant spec;
+- the spec rules the task implements (by ID), not the whole spec;
 - specific source files.
+
+Size a task so one agent finishes it in about 100k tokens (CLAUDE.md § Effort & Tokens). Bigger means split it.
 
 Do not duplicate specification text inside tasks. See CLAUDE.md for escalation rules.
