@@ -37,7 +37,7 @@ add_library(engine_platform ALIAS ${_nayla_backend_target})
 
 target_link_libraries(${_nayla_backend_target} PUBLIC engine_platform_api engine_foundation)
 
-target_compile_options(${_nayla_backend_target} PRIVATE -Wall -Wextra -Wpedantic)
+nayla_target_warnings(${_nayla_backend_target})
 
 if(NAYLA_PLATFORM_BACKEND STREQUAL "macos")
   # ADR-011 Decision 1: manual retain/release, set explicitly so a generator

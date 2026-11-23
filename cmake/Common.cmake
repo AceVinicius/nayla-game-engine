@@ -10,6 +10,32 @@
 # the allocation and output checks stay case-sensitive, as before.
 set(NAYLA_FORBID_PATTERN_SCRIPT "${CMAKE_SOURCE_DIR}/cmake/forbid-pattern.sh")
 
+# Warning flags for `target`, chosen per compiler by generator expression, so
+# every target gets the same set. Usage: nayla_target_warnings(target [PEDANTIC_ERRORS])
+# GCC, Clang and AppleClang: -Wall -Wextra -Wpedantic, plus -pedantic-errors with
+# PEDANTIC_ERRORS. MSVC: /W4. Warnings-as-errors is not set here; it comes from
+# CMAKE_COMPILE_WARNING_AS_ERROR. Each source language (C, Objective-C) gets its
+# own branch because a $<COMPILE_LANG_AND_ID> genex matches only one language.
+# Known MSVC gaps, untested here (no Windows toolchain on the dev host):
+#  - tests/platform/test_platform_stateless.c includes <stdatomic.h>, which MSVC
+#    provides only with /experimental:c11atomics.
+#  - MSVC has no counterpart to -pedantic-errors (C_STANDARD already selects
+#    /std:c17), so PEDANTIC_ERRORS adds nothing there.
+#  - -fno-objc-arc (src/platform/CMakeLists.txt) is Apple-only; it has no MSVC form.
+function(nayla_target_warnings target)
+  cmake_parse_arguments(PARSE_ARGV 1 _w "PEDANTIC_ERRORS" "" "")
+  set(_gnu_flags -Wall -Wextra -Wpedantic)
+  if(_w_PEDANTIC_ERRORS)
+    list(APPEND _gnu_flags -pedantic-errors)
+  endif()
+  foreach(_lang IN ITEMS C OBJC)
+    target_compile_options(${target} PRIVATE
+      "$<$<COMPILE_LANG_AND_ID:${_lang},GNU,Clang,AppleClang>:${_gnu_flags}>"
+      "$<$<COMPILE_LANG_AND_ID:${_lang},MSVC>:/W4>"
+    )
+  endforeach()
+endfunction()
+
 # Reads a pattern file (one ERE per line, no comment lines) into `out` as one
 # ERE joined with "|". The file is a configure dependency, so editing it re-runs
 # configure. The architecture test reads the same files with `grep -f`.
