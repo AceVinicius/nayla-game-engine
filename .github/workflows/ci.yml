@@ -66,15 +66,7 @@ jobs:
       # after the X display answers.
       - name: Start Xvfb
         if: needs.changes.outputs.code == 'true' && startsWith(matrix.os, 'ubuntu')
-        run: |
-          Xvfb :99 -screen 0 1280x720x24 &
-          echo "DISPLAY=:99" >> "$GITHUB_ENV"
-          for _ in $(seq 50); do
-            DISPLAY=:99 xdpyinfo >/dev/null 2>&1 && exit 0
-            sleep 0.1
-          done
-          echo "Xvfb did not come up on :99" >&2
-          exit 1
+        run: tools/ci/start-display.sh
 
       # Warnings are errors: the project's bar is zero warnings.
       - name: Configure
@@ -126,15 +118,7 @@ jobs:
       # after the X display answers.
       - name: Start Xvfb
         if: needs.changes.outputs.code == 'true'
-        run: |
-          Xvfb :99 -screen 0 1280x720x24 &
-          echo "DISPLAY=:99" >> "$GITHUB_ENV"
-          for _ in $(seq 50); do
-            DISPLAY=:99 xdpyinfo >/dev/null 2>&1 && exit 0
-            sleep 0.1
-          done
-          echo "Xvfb did not come up on :99" >&2
-          exit 1
+        run: tools/ci/start-display.sh
 
       - name: Configure
         if: needs.changes.outputs.code == 'true'
@@ -148,7 +132,7 @@ jobs:
         run: cmake --build build
 
       # x11 forced (ADR-012 Decision 5): the window suite runs on the X11 path under
-      # Xvfb, and a forced system whose server is down is a FAIL (PLATFORM-092).
+      # Xvfb, and a forced system whose server is down is a FAIL (PLATFORM-101).
       - name: Test
         if: needs.changes.outputs.code == 'true'
         env:

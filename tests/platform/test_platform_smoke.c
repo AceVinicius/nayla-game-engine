@@ -76,7 +76,7 @@ static int test_platform_init_rules(void) {
 
     /* NULL allocator resolves to the default. The window-system probe decides the
      * result: SUCCESS where a display is reachable (macOS), NOT_SUPPORTED where
-     * none is (Linux and Win32 stubs, headless hosts). */
+     * none is (a host with no display server). */
     p = (Platform *)&sentinel;
     EngineResult result = platform_init(&p, NULL, NULL);
     CHECK(result == ENGINE_RESULT_SUCCESS || result == ENGINE_RESULT_NOT_SUPPORTED,
