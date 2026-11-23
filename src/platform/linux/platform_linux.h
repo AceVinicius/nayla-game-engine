@@ -17,6 +17,12 @@
 
 typedef struct PlatformOps PlatformOps;
 
+/* A window-system connection made before anything is allocated (PLATFORM-033):
+ * the path's own handle, kept as an engine-defined opaque type. */
+typedef struct PlatformConnection {
+    PlatformNativeObject *display;
+} PlatformConnection;
+
 struct Platform {
     const PlatformOps     *ops;         /* static const table of the chosen path */
     const EngineAllocator *allocator;   /* resolved once at init (PLATFORM-031) */
@@ -45,10 +51,16 @@ struct PlatformOps {
     const char *name;                   /* for logs */
     size_t platform_size;               /* sizeof the path's Platform struct */
     size_t window_size;                 /* sizeof the path's PlatformWindow struct */
-    /* Connects. The base is initialised. Logs the detail and returns
-     * NOT_SUPPORTED on failure; must leave nothing open (PLATFORM-033). */
-    EngineResult (*open)(Platform *platform);
-    /* Releases the connection. Performs no I/O in the lost state. */
+    /* PLATFORM-033: probes the window system without any EngineAllocator
+     * allocation. Logs the detail at WARN and returns NOT_SUPPORTED on failure,
+     * leaving nothing open. */
+    EngineResult (*connect)(const EngineLogger *logger, PlatformConnection *out_connection);
+    /* Closes a connection that was never adopted (a later allocation failed). */
+    void (*disconnect)(PlatformConnection *connection);
+    /* Moves the connection into the allocated Platform (the base is
+     * initialised). NOT_SUPPORTED on failure; the caller then disconnects. */
+    EngineResult (*adopt)(Platform *platform, PlatformConnection *connection);
+    /* Releases an adopted connection. Performs no I/O in the lost state. */
     void (*close)(Platform *platform);
     /* `title` is sanitised UTF-8. The base is linked and `creating` is true.
      * The window is visible on SUCCESS; sets its size with platform_linux_set_window_state. */

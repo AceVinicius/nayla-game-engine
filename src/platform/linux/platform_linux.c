@@ -59,12 +59,18 @@ void platform_linux_enter_lost(Platform *platform, const char *detail) {
 
 /* ---- Lifecycle (PLATFORM-033..036, ADR-012 Decision 1) ------------------- */
 
-/* Builds a Platform for one window system and connects. A failed attempt
- * frees everything it allocated. */
+/* PLATFORM-033: probe first (no EngineAllocator allocation), then allocate and
+ * adopt the connection. A failed attempt releases everything it acquired. */
 static EngineResult platform_try_open(const PlatformOps *ops, const EngineAllocator *allocator,
                                       const EngineLogger *logger, Platform **out_platform) {
+    PlatformConnection connection = {NULL};
+    EngineResult result = ops->connect(logger, &connection);
+    if (result != ENGINE_RESULT_SUCCESS) {
+        return result;
+    }
     Platform *platform = engine_alloc(allocator, ops->platform_size, alignof(max_align_t));
     if (!platform) {
+        ops->disconnect(&connection);
         return ENGINE_RESULT_OUT_OF_MEMORY;
     }
     memset(platform, 0, ops->platform_size);
@@ -72,11 +78,13 @@ static EngineResult platform_try_open(const PlatformOps *ops, const EngineAlloca
     platform->allocator = allocator;
     platform->logger = logger;
     if (platform_queue_init(&platform->queue, allocator) != ENGINE_RESULT_SUCCESS) {
+        ops->disconnect(&connection);
         engine_free(allocator, platform);
         return ENGINE_RESULT_OUT_OF_MEMORY;
     }
-    EngineResult result = ops->open(platform);
+    result = ops->adopt(platform, &connection);
     if (result != ENGINE_RESULT_SUCCESS) {
+        ops->disconnect(&connection);
         platform_queue_destroy(&platform->queue, allocator);
         engine_free(allocator, platform);
         return result;

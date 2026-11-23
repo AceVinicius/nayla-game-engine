@@ -27,8 +27,14 @@ set(_nayla_backend_sources
 )
 if(NAYLA_PLATFORM_BACKEND STREQUAL "macos")
   list(APPEND _nayla_backend_sources ${_nayla_backend_dir}/platform_macos.m)
+elseif(NAYLA_PLATFORM_BACKEND STREQUAL "linux")
+  # ADR-012: selection and dispatch, with one file per window-system path.
+  list(APPEND _nayla_backend_sources
+    ${_nayla_backend_dir}/platform_linux.c
+    ${_nayla_backend_dir}/x11.c
+    ${_nayla_backend_dir}/wayland.c)
 else()
-  # win32 and linux have no window system yet: they share the stub lifecycle.
+  # win32 has no window system yet: it uses the stub lifecycle until #34.
   list(APPEND _nayla_backend_sources ${_nayla_common_dir}/platform_stub.c)
 endif()
 

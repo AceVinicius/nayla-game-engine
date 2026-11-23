@@ -59,8 +59,9 @@ EngineResult platform_window_create_check(PlatformWindow **out_window, const Pla
 
 /* ---- Title sanitising (PLATFORM-041) ---------------------------------------
  * Returns a NUL-terminated copy of `title` allocated from `allocator`, with
- * every invalid UTF-8 sequence (overlong forms, surrogates, > U+10FFFF,
- * truncated or stray bytes) replaced by one U+FFFD. Free with engine_free.
+ * every byte that is not part of a well-formed sequence (overlong forms,
+ * surrogates, > U+10FFFF, truncated or stray bytes) replaced by one U+FFFD, so
+ * one bad sequence can yield several. Free with engine_free.
  * NULL on allocation failure. */
 char *platform_title_sanitize(const EngineAllocator *allocator, const char *title);
 

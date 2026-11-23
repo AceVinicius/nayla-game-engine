@@ -1,12 +1,27 @@
 /* X11 path of the Linux backend (ADR-012 Decisions 2 to 4 and 6): Xlib windows,
  * the XPending pump, the poll-based wait and connection-loss detection.
  *
+ * Upstream references (libX11, https://gitlab.freedesktop.org/xorg/lib/libx11;
+ * tags libX11-1.7.0 and libX11-1.8.1, read through cgit.freedesktop.org):
+ *   [1] src/XlibInt.c _XDefaultIOError ends in exit(1) in every release checked
+ *       (1.7.0, 1.8.1, 1.8.12), so its default never reaches the per-Display
+ *       exit handler.
+ *   [2] src/XlibInt.c _XIOError: sets XlibDisplayIOError, takes the user lock
+ *       (dpy->lock->user_lock_display), calls UnlockDisplay, then the global
+ *       I/O-error handler, then dpy->exit_handler. The user lock is never
+ *       released: the code assumes the exit handler exits the process.
+ *   [3] src/locking.c _XUserLockDisplay / _XUserUnlockDisplay: a nesting count
+ *       (locking_level) plus an owner thread, released by XUnlockDisplay.
+ *   [4] src/xcb_io.c: _XSend and _XReply return at once, and _XEventsQueued
+ *       returns 0, when dpy->flags has XlibDisplayIOError.
+ *   [5] src/locking.c XInitThreads: `if (_Xglobal_lock) return 1;`, so a repeat
+ *       call is harmless (checked on 1.7.0, the minimum).
+ *
  * Neither path installs a process-global Xlib *error* handler (Decision 4). The
  * one process-global handler installed here is the I/O-error handler of
- * Decision 6's fallback, restored in x11_close. libX11's default I/O-error
- * handler calls exit(1) in every release checked (1.7.0 and 1.8.12:
- * _XDefaultIOError in src/XlibInt.c ends in exit(1)), so the per-Display exit
- * handler would never run without it. */
+ * Decision 6's fallback, installed in x11_adopt and restored in x11_close. It
+ * is needed because of [1]. At most one X11 Platform is live at a time
+ * (PLATFORM-036), so the saved handler has one owner. */
 
 /* Feature-test macro before any include: strict C23 mode hides poll(). */
 #ifndef _GNU_SOURCE
@@ -28,9 +43,12 @@
 
 /* PLATFORM-041: how long a window may take to report MapNotify. Backend-private. */
 #define X11_MAP_TIMEOUT_NS ((uint64_t)1000000000u)
-/* The X server rejects an oversized property with BadLength, and Xlib's default
- * error handler would then exit the process, so the title is capped. */
-#define X11_TITLE_MAX_BYTES 1024u
+/* A request longer than the server's maximum fails with BadLength, and Xlib's
+ * default error handler then exits the process, so the title is capped to
+ * XMaxRequestSize (the length without BIG-REQUESTS, in 4-byte units) less the
+ * margin. It only matters for absurdly long titles. */
+/* ChangeProperty header (24 bytes) plus margin kept out of the title cap. */
+#define X11_REQUEST_MARGIN_BYTES 256
 
 typedef struct X11Platform {
     Platform       base;                 /* first member: Platform * casts to X11Platform * */
@@ -67,10 +85,15 @@ static int x11_io_error_handler(Display *display) {
 /* Runs inside an Xlib call, possibly on a presentation thread: it records the
  * loss and nothing else. The platform thread does the rest in x11_check_lost. */
 static void x11_io_exit_handler(Display *display, void *user_data) {
-    (void)display;
     X11Platform *x11 = user_data;
     atomic_store(&x11->io_errno, errno);
     atomic_store(&x11->io_lost, true);
+    /* [2]: _XIOError took the display's user lock and never releases it, since
+     * libX11 expects this handler to exit. We return instead, so balance it
+     * ([3]), or another thread's XPending, XFlush or XCloseDisplay would block
+     * forever on a lock whose owner has moved on. This runs on the thread that
+     * made _XIOError take it. */
+    XUnlockDisplay(display);
 }
 
 /* Moves a recorded loss into the shared lost state. True once the Platform is lost. */
@@ -156,8 +179,9 @@ static void x11_handle_event(X11Platform *x11, const XEvent *event) {
     }
 }
 
-/* XPending flushes the output buffer when nothing is queued, and returns 0 for
- * a display that has hit an I/O error, so the loop always ends. */
+/* XPending flushes the output buffer when nothing is queued. After an I/O
+ * error the flush and the read return at once ([4]) and no new event arrives,
+ * so the loop ends. */
 static void x11_drain(X11Platform *x11) {
     while (XPending(x11->display) > 0) {
         XEvent event;
@@ -168,6 +192,9 @@ static void x11_drain(X11Platform *x11) {
 
 static void x11_pump(Platform *platform) {
     X11Platform *x11 = (X11Platform *)platform;
+    if (x11_check_lost(x11)) {   /* a presentation thread may have hit the loss */
+        return;
+    }
     x11_drain(x11);
     (void)x11_check_lost(x11);
 }
@@ -188,6 +215,9 @@ static void x11_poll(int fd, uint64_t timeout_ns) {
 
 static void x11_wait(Platform *platform, uint64_t timeout_ns) {
     X11Platform *x11 = (X11Platform *)platform;
+    if (x11_check_lost(x11)) {
+        return;
+    }
     XFlush(x11->display);
     /* Events already read into Xlib's queue would never wake the poll. */
     int queued = XEventsQueued(x11->display, QueuedAfterReading);
@@ -202,39 +232,53 @@ static void x11_wait(Platform *platform, uint64_t timeout_ns) {
 
 /* ---- Lifecycle (Decisions 2, 4, 6) ----------------------------------------- */
 
-static EngineResult x11_open(Platform *platform) {
-    X11Platform *x11 = (X11Platform *)platform;
+/* PLATFORM-033: the probe allocates nothing from an EngineAllocator. */
+static EngineResult x11_connect(const EngineLogger *logger, PlatformConnection *out_connection) {
+    (void)logger;   /* ENGINE_LOG_WARN compiles away at high ENGINE_LOG_COMPILE_MIN_LEVEL */
     /* Decision 4: before the first Xlib call, XOpenDisplay included, because the
-     * Vulkan Xlib WSI may use the Display from presentation threads. */
+     * Vulkan Xlib WSI may use the Display from presentation threads. Repeat
+     * calls across sequential re-init return 1 at once ([5]). */
     if (!XInitThreads()) {
-        ENGINE_LOG_WARN(platform->logger, "Platform", "X11: XInitThreads failed");
+        ENGINE_LOG_WARN(logger, "Platform", "X11: XInitThreads failed");
         return ENGINE_RESULT_NOT_SUPPORTED;
     }
-    x11->display = XOpenDisplay(NULL);
-    if (!x11->display) {
-        ENGINE_LOG_WARN(platform->logger, "Platform", "X11: XOpenDisplay failed (no X server reachable through DISPLAY)");
+    Display *display = XOpenDisplay(NULL);
+    if (!display) {
+        ENGINE_LOG_WARN(logger, "Platform", "X11: XOpenDisplay failed (no X server reachable through DISPLAY)");
         return ENGINE_RESULT_NOT_SUPPORTED;
     }
-    x11->wm_protocols = XInternAtom(x11->display, "WM_PROTOCOLS", False);
-    x11->wm_delete_window = XInternAtom(x11->display, "WM_DELETE_WINDOW", False);
-    x11->wm_state = XInternAtom(x11->display, "WM_STATE", False);
-    x11->net_wm_name = XInternAtom(x11->display, "_NET_WM_NAME", False);
-    x11->utf8_string = XInternAtom(x11->display, "UTF8_STRING", False);
-    if (!x11->wm_protocols || !x11->wm_delete_window || !x11->wm_state || !x11->net_wm_name || !x11->utf8_string) {
-        ENGINE_LOG_WARN(platform->logger, "Platform", "X11: the server did not intern the required atoms");
-        XCloseDisplay(x11->display);
-        return ENGINE_RESULT_NOT_SUPPORTED;
-    }
-    atomic_init(&x11->io_lost, false);
-    atomic_init(&x11->io_errno, 0);
-    x11->connection_fd = ConnectionNumber(x11->display);
-    x11->previous_io_handler = XSetIOErrorHandler(x11_io_error_handler);
-    XSetIOErrorExitHandler(x11->display, x11_io_exit_handler, x11);
+    out_connection->display = (PlatformNativeObject *)display;
     return ENGINE_RESULT_SUCCESS;
 }
 
-/* Safe in the lost state: with XlibDisplayIOError set, Xlib's _XSend and _XReply
- * return at once, so the XSync calls inside XCloseDisplay perform no I/O. */
+static void x11_disconnect(PlatformConnection *connection) {
+    XCloseDisplay((Display *)connection->display);
+}
+
+static EngineResult x11_adopt(Platform *platform, PlatformConnection *connection) {
+    X11Platform *x11 = (X11Platform *)platform;
+    Display *display = (Display *)connection->display;
+    x11->wm_protocols = XInternAtom(display, "WM_PROTOCOLS", False);
+    x11->wm_delete_window = XInternAtom(display, "WM_DELETE_WINDOW", False);
+    x11->wm_state = XInternAtom(display, "WM_STATE", False);
+    x11->net_wm_name = XInternAtom(display, "_NET_WM_NAME", False);
+    x11->utf8_string = XInternAtom(display, "UTF8_STRING", False);
+    if (!x11->wm_protocols || !x11->wm_delete_window || !x11->wm_state || !x11->net_wm_name || !x11->utf8_string) {
+        ENGINE_LOG_WARN(platform->logger, "Platform", "X11: the server did not intern the required atoms");
+        return ENGINE_RESULT_NOT_SUPPORTED;
+    }
+    x11->display = display;
+    atomic_init(&x11->io_lost, false);
+    atomic_init(&x11->io_errno, 0);
+    x11->connection_fd = ConnectionNumber(display);
+    x11->previous_io_handler = XSetIOErrorHandler(x11_io_error_handler);
+    XSetIOErrorExitHandler(display, x11_io_exit_handler, x11);
+    return ENGINE_RESULT_SUCCESS;
+}
+
+/* Safe in the lost state: with XlibDisplayIOError set, _XSend and _XReply
+ * return at once ([4]), so the XSync calls inside XCloseDisplay do no I/O. This
+ * relies on x11_io_exit_handler having released the user lock ([2], [3]). */
 static void x11_close(Platform *platform) {
     X11Platform *x11 = (X11Platform *)platform;
     XCloseDisplay(x11->display);
@@ -271,16 +315,16 @@ static EngineResult x11_window_open(PlatformWindow *base, const PlatformWindowDe
         XSetWMNormalHints(display, window->xid, &hints);
     }
 
+    /* _NET_WM_NAME only: every current window manager reads it. */
     size_t title_length = strlen(title);
-    if (title_length > X11_TITLE_MAX_BYTES) {
-        title_length = X11_TITLE_MAX_BYTES;
+    size_t title_cap = (size_t)XMaxRequestSize(display) * 4u - X11_REQUEST_MARGIN_BYTES;
+    if (title_length > title_cap) {
+        title_length = title_cap;
         while (title_length > 0 && ((unsigned char)title[title_length] & 0xC0u) == 0x80u) {
             title_length--;   /* never cut a sequence in half */
         }
     }
     XChangeProperty(display, window->xid, x11->net_wm_name, x11->utf8_string, 8, PropModeReplace,
-                    (const unsigned char *)title, (int)title_length);
-    XChangeProperty(display, window->xid, XA_WM_NAME, x11->utf8_string, 8, PropModeReplace,
                     (const unsigned char *)title, (int)title_length);
 
     /* PLATFORM-041: a window manager redirects the map, so wait for this
@@ -288,12 +332,15 @@ static EngineResult x11_window_open(PlatformWindow *base, const PlatformWindowDe
     XMapWindow(display, window->xid);
     uint64_t deadline = platform_time_now_ns() + X11_MAP_TIMEOUT_NS;
     for (;;) {
-        x11_drain(x11);
+        bool lost = x11_check_lost(x11);   /* before any Xlib call: a loss may already be recorded */
+        if (!lost) {
+            x11_drain(x11);
+        }
         if (window->mapped) {
             break;
         }
         uint64_t now = platform_time_now_ns();
-        if (x11_check_lost(x11) || now >= deadline) {
+        if (lost || x11_check_lost(x11) || now >= deadline) {
             if (!x11->base.lost) {
                 XDestroyWindow(display, window->xid);
                 XFlush(display);
@@ -328,7 +375,9 @@ const PlatformOps platform_x11_ops = {
     .name = "X11",
     .platform_size = sizeof(X11Platform),
     .window_size = sizeof(X11Window),
-    .open = x11_open,
+    .connect = x11_connect,
+    .disconnect = x11_disconnect,
+    .adopt = x11_adopt,
     .close = x11_close,
     .window_open = x11_window_open,
     .window_close = x11_window_close,

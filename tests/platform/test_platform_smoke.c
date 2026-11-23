@@ -3,8 +3,13 @@
  * rules that every backend shares. The full conformance suite is a separate
  * task. */
 
+#if defined(__linux__)
+#define _GNU_SOURCE /* setenv/unsetenv under strict C23 */
+#endif
+
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "src/platform/api.h"
@@ -215,6 +220,48 @@ static int test_event_queue(void) {
     return 0;
 }
 
+#if defined(__linux__)
+static void *failing_alloc(const EngineAllocator *allocator, size_t size, size_t alignment) {
+    (void)size;
+    (void)alignment;
+    ++*(int *)allocator->user_data;   /* proves whether the allocator was reached */
+    return NULL;
+}
+
+static void noop_free(const EngineAllocator *allocator, void *memory) {
+    (void)allocator;
+    (void)memory;
+}
+
+/* PLATFORM-033: validate, then probe without allocating, then allocate. With
+ * no X server reachable the result is NOT_SUPPORTED even for an always-NULL
+ * allocator, and the allocator is never called. Linux only: the other
+ * backends cannot be made to lack a display from inside a test. */
+static int test_init_probes_before_allocating(void) {
+    const char *saved_display = getenv("DISPLAY");
+    char *display_copy = saved_display ? strdup(saved_display) : NULL;
+    const char *saved_system = getenv("NAYLA_LINUX_WINDOW_SYSTEM");
+    char *system_copy = saved_system ? strdup(saved_system) : NULL;
+    unsetenv("DISPLAY");
+    CHECK(setenv("NAYLA_LINUX_WINDOW_SYSTEM", "x11", 1) == 0, "setenv failed");
+
+    int calls = 0;
+    EngineAllocator failing = {failing_alloc, noop_free, &calls};
+    Platform *p = NULL;
+    EngineResult result = platform_init(&p, &failing, NULL);
+
+    if (display_copy) { setenv("DISPLAY", display_copy, 1); }
+    if (system_copy) { setenv("NAYLA_LINUX_WINDOW_SYSTEM", system_copy, 1); } else { unsetenv("NAYLA_LINUX_WINDOW_SYSTEM"); }
+    free(display_copy);
+    free(system_copy);
+
+    CHECK(result == ENGINE_RESULT_NOT_SUPPORTED, "platform_init returned %s, expected NOT_SUPPORTED", engine_result_name(result));
+    CHECK(p == NULL, "platform_init left *out_platform non-NULL");
+    CHECK(calls == 0, "the allocator was called %d times before the probe failed", calls);
+    return 0;
+}
+#endif
+
 static const TestCase tests[] = {
     {"unit/platform_smoke: time is non-decreasing and never UINT64_MAX", test_time_non_decreasing},
     {"unit/platform_smoke: thread id is non-zero and stable", test_thread_id_non_zero_and_stable},
@@ -225,6 +272,9 @@ static const TestCase tests[] = {
     {"unit/platform_smoke: NULL tolerance", test_null_tolerance},
     {"unit/platform_smoke: title sanitising replaces invalid UTF-8", test_title_sanitize},
     {"unit/platform_smoke: event queue coalesces, bounds and purges", test_event_queue},
+#if defined(__linux__)
+    {"unit/platform_smoke: platform_init probes before allocating", test_init_probes_before_allocating},
+#endif
 };
 
 int main(void) {

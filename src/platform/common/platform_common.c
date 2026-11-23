@@ -3,8 +3,8 @@
  *
  * Holds the logger adapters (PLATFORM-025), the overflow-safe tick conversion
  * (PLATFORM-022), the allocator resolution every create entry point shares, the
- * event queue, window-create validation and title sanitising. The lifecycle stub for backends without a window system lives in
- * platform_stub.c. */
+ * event queue, window-create validation and title sanitising. The lifecycle
+ * stub for backends without a window system (Win32) lives in platform_stub.c. */
 
 #include <string.h>
 
