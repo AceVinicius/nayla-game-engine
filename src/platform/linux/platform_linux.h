@@ -96,6 +96,11 @@ void platform_linux_set_window_state(PlatformWindow *window, uint32_t width, uin
 /* PLATFORM-043: sets the sticky flag; queues CLOSE_REQUESTED the first time only. */
 void platform_linux_request_close(PlatformWindow *window);
 
+/* PLATFORM-056: the poll() timeout for `timeout_ns`, rounded up to whole
+ * milliseconds and never to 0; UINT64_MAX is -1 (infinite); a long finite
+ * timeout is clamped to INT_MAX, never to 0 or infinite. */
+int platform_linux_timeout_ms(uint64_t timeout_ns);
+
 /* Starts a loss record: not lost, no saved handler. */
 void platform_loss_init(PlatformLoss *loss);
 /* Moves a connection's record into the Platform that adopts it. Call before

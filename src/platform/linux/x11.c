@@ -29,7 +29,6 @@
 #endif
 
 #include <errno.h>
-#include <limits.h>
 #include <poll.h>
 #include <stdatomic.h>
 #include <string.h>
@@ -189,18 +188,12 @@ static void x11_pump(Platform *platform) {
     (void)x11_check_lost(x11);
 }
 
-/* Blocks until the connection is readable or the timeout elapses (PLATFORM-056):
- * rounded up to whole milliseconds, never to 0; UINT64_MAX is infinite; a long
- * finite timeout is clamped to INT_MAX ms, never to 0 or infinite. An EINTR
- * return is an early return, which PLATFORM-055 allows. */
+/* Blocks until the connection is readable or the timeout elapses (PLATFORM-056,
+ * platform_linux_timeout_ms). An EINTR return is an early return, which
+ * PLATFORM-055 allows. */
 static void x11_poll(int fd, uint64_t timeout_ns) {
-    int timeout_ms = -1;
-    if (timeout_ns != UINT64_MAX) {
-        uint64_t ms = timeout_ns / 1000000u + (timeout_ns % 1000000u != 0 ? 1u : 0u);
-        timeout_ms = ms > (uint64_t)INT_MAX ? INT_MAX : (int)ms;
-    }
     struct pollfd entry = {.fd = fd, .events = POLLIN, .revents = 0};
-    (void)poll(&entry, 1, timeout_ms);
+    (void)poll(&entry, 1, platform_linux_timeout_ms(timeout_ns));
 }
 
 static void x11_wait(Platform *platform, uint64_t timeout_ns) {
