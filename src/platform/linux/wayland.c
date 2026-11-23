@@ -10,9 +10,11 @@
  *       cannot be used afterwards; wl_display_get_protocol_error returns the
  *       code, interface and object id of a protocol error (error == EPROTO).
  *   [2] wayland-client.c wl_proxy_marshal_array_flags: once display->last_error
- *       is set, a request is dropped client side (nothing is written), so
- *       destroying proxies and calling wl_surface_commit in the lost state does
- *       no I/O. wl_display_disconnect only closes the fd and frees the display.
+ *       is set, a request is dropped client side (nothing is written).
+ *       Loss that arrives as a failed flush with EPIPE does NOT set it ([3]),
+ *       so there, destroy requests are marshalled and may be written to the
+ *       dead socket (a harmless failed send). wl_display_disconnect only closes
+ *       the fd and frees the display.
  *   [3] wayland-client.c wl_display_flush: EPIPE and EAGAIN do not set the
  *       display error, "so that we may try to read events after the failed
  *       flush"; wl_display_read_events fails with the display error once one is
@@ -23,7 +25,15 @@
  *       dispatch_pending. Returns the dispatched count, or -errno from flush or
  *       poll. A negative count can also leak out of dispatch_pending after a
  *       fatal error, so loss is decided by wl_display_get_error, not the sign.
- *       The same dispatch is what wayland_dispatch below copies for the
+ *       With display->last_error set, dispatch_pending fails at once while
+ *       prepare_read keeps failing with EAGAIN as long as events are queued, so
+ *       the plugins' prepare_read loop would spin forever: pump and wait
+ *       therefore check the display error before every libdecor_dispatch. A
+ *       residual race remains inside libdecor: an error set by another thread
+ *       (a GPU WSI thread) between that check and the plugin's loop can still
+ *       spin it; libdecor offers no hook to close that window. The local
+ *       wayland_dispatch below deviates on purpose: it returns on the first
+ *       failed dispatch_pending instead of looping. It otherwise copies the
  *       libdecor-free setup phase.
  *   [5] libdecor src/libdecor.c libdecor_new: when no plugin loads it prints
  *       "No plugins found, falling back on no decorations" to the standard error stream and
@@ -37,15 +47,20 @@
  *       close button; NAYLA_LINUX_WINDOW_SYSTEM=x11 is the workaround.
  *   [6] libdecor.h: LIBDECOR_WINDOW_STATE_SUSPENDED exists from libdecor 0.2.0
  *       (absent in 0.1.1, checked on both tags); libdecor.c binds xdg_wm_base at
- *       min(server version, 6) when built with xdg-shell v6.
+ *       min(server version, 6) when built with xdg-shell v6. A libdecor built
+ *       without xdg-shell v6 never reports `suspended`, and the API cannot say
+ *       so: only the compositor's xdg_wm_base version is observable here.
  *   [7] libdecor.c libdecor_frame_commit acks the configure serial;
  *       libdecor_configuration_get_content_size returns false when the
  *       configure carried no or a zero size; libdecor_frame_unref destroys the
  *       frame's xdg_toplevel and xdg_surface, which must precede wl_surface
  *       destruction.
  *   [8] wl_display_connect(NULL): WAYLAND_SOCKET, when set, is consumed (unset)
- *       by the first successful connect, so a later re-init in one process
- *       cannot use it again.
+ *       by the first connect that finds it set, even when that connect fails, so
+ *       a later probe or re-init in one process cannot use it again.
+ *   [9] libdecor_new (called from adopt) runs the plugin's init, which in the
+ *       cairo plugin may do an unbounded roundtrip. The probe already proved
+ *       the compositor answers, so the risk is low; it is not bounded here.
  *
  * Every listener and libdecor callback runs inside a dispatch call on the
  * platform thread (nothing here is reached from another thread), so loss is
@@ -144,7 +159,9 @@ typedef struct WaylandWindow {
 static int wayland_dispatch(struct wl_display *display, int timeout_ms) {
     int count = 0;
     while (wl_display_prepare_read(display) != 0) {
-        count += wl_display_dispatch_pending(display);
+        if (wl_display_dispatch_pending(display) < 0) {
+            return -errno;   /* deliberate deviation from [4]: no spin after a fatal error */
+        }
     }
     if (wl_display_flush(display) < 0 && errno != EAGAIN) {
         int error = errno;
@@ -349,7 +366,7 @@ static bool wayland_bind_globals(struct wl_display *display, WaylandGlobals *glo
 }
 
 /* Client-side destruction only: no request that waits for the server. In the
- * lost state the requests are dropped locally ([2]). NULL-safe. */
+ * lost state the requests are dropped locally or fail harmlessly ([2]). NULL-safe. */
 static void wayland_release_globals(WaylandGlobals *globals) {
     for (size_t i = 0; i < WAYLAND_MAX_OUTPUTS; i++) {
         if (globals->outputs[i].output) {
@@ -398,7 +415,9 @@ static uint32_t wayland_scale(const WaylandWindow *window) {
             }
         }
     }
-    return (uint32_t)scale * WAYLAND_FRACTIONAL_DENOMINATOR;
+    /* Clamp so the product cannot wrap; no real scale gets near it. */
+    uint32_t maximum = UINT32_MAX / WAYLAND_FRACTIONAL_DENOMINATOR;
+    return ((uint32_t)scale > maximum ? maximum : (uint32_t)scale) * WAYLAND_FRACTIONAL_DENOMINATOR;
 }
 
 /* PLATFORM-042: framebuffer = logical x scale, rounded; the buffer_scale stays 1
@@ -635,9 +654,10 @@ fail:
     return ENGINE_RESULT_NOT_SUPPORTED;   /* the caller disconnects */
 }
 
-/* Safe in the lost state: proxy destruction and libdecor_unref send requests
- * that libwayland drops once the display error is set ([2]), and
- * wl_display_disconnect does no I/O. */
+/* Safe in the lost state: with the display error set, libwayland drops the
+ * destroy requests locally; after an EPIPE flush they are marshalled and may be
+ * sent to the dead socket, which fails harmlessly ([2]). wl_display_disconnect
+ * does no I/O. */
 static void wayland_close(Platform *platform) {
     WaylandPlatform *wl = (WaylandPlatform *)platform;
     wayland_release(wl);
@@ -749,6 +769,9 @@ static EngineResult wayland_get_native(const PlatformWindow *base, PlatformNativ
 
 static void wayland_pump(Platform *platform) {
     WaylandPlatform *wl = (WaylandPlatform *)platform;
+    if (wayland_check_dispatch(wl, 0)) {   /* a WSI thread may have set the display error; see [4] */
+        return;
+    }
     (void)wayland_check_dispatch(wl, libdecor_dispatch(wl->decor, 0));
 }
 
@@ -764,8 +787,12 @@ static void wayland_wait(Platform *platform, uint64_t timeout_ns) {
     if (wl->base.lost || wl->activity != activity) {
         return;
     }
-    (void)wayland_check_dispatch(wl, libdecor_dispatch(wl->decor, platform_linux_timeout_ms(timeout_ns)));
-    wayland_pump(platform);
+    if (wayland_check_dispatch(wl, 0)) {
+        return;
+    }
+    if (!wayland_check_dispatch(wl, libdecor_dispatch(wl->decor, platform_linux_timeout_ms(timeout_ns)))) {
+        wayland_pump(platform);   /* never in the lost state: see [4] */
+    }
 }
 
 const PlatformOps platform_wayland_ops = {
