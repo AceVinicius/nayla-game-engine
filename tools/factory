@@ -161,7 +161,7 @@ cmd_prove() {
 }
 
 # gh prints "hint:" blocks on some calls; drop them so they never reach context.
-gh_q() { gh "$@" 2>/dev/null | grep -vE '^(hint:|  - |    gh event)'; }
+gh_q() { gh "$@" 2>/dev/null | grep -vE '^(hint: if you need to wait|    gh event listen|  - (It prints the first event|Add `--timeout`|Events carry no details|It misses changes|See `gh event listen|Event subscriptions are in preview))'; }
 
 # Waits for every CI check on a PR, requests a Copilot review if none exists,
 # then prints the check summary, failing log lines and review comments.
