@@ -1,3 +1,9 @@
+---
+paths:
+  - "src/gpu/**"
+  - "docs/spec/**/gpu*.md"
+---
+
 # GPU Rules
 
 - GPU API must be implementable by Vulkan, D3D12, and Metal.

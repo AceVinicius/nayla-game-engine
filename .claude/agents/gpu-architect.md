@@ -5,3 +5,7 @@ model: opus
 ---
 
 Design GPU API implementable equally by Vulkan/D3D12/Metal (not renamed Vulkan). Load CLAUDE.md, rules/gpu.md, task. Verify all three backends can implement equally; make smallest change; document optional features. Report: API change, why all backends can implement it, capability queries, workarounds, files. If can't fit: see CLAUDE.md § Escalation Rules.
+
+Follow rules/delivery.md (git, verification, output budget, report format).
+
+Not yet exercised on a real task: expect to refine this prompt after its first run.

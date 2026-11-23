@@ -63,27 +63,26 @@ Specification (define) → Architecture (design) → Tasks (decompose)
   → Implementation (build) → Tests (validate) → Audit (check) → Review (approve)
 ```
 
-Workflows run sequentially or in pipeline; barriers only when all results needed together.
+Independent tasks run in parallel (one agent per task, each in its own worktree); dependent ones run in order.
 
 ## Effort & Tokens
 
-- **Model**: Haiku by default (fast/cheap). Opus for synthesis, review, escalations.
-- **Per-task budget**: ~30k tokens; escalate if exceeded.
-- **Workflows**: `pipeline()` default; `parallel()` only when gathering all results at once.
-- **Output**: Prefer `agent(schema:)` for structured data; avoid prose summaries.
-- **Large files**: Read in chunks; never load full diffs or logs.
+- **Models**: implementers (`*-engineer`, `test-engineer`) use Sonnet. Design, specs and review (`architect`, `gpu-architect`, `spec-writer`, `task-planner`, `reviewer`) use Opus. Mechanical audits (`dependency-auditor`) use Haiku. First-pass correctness costs less than fix rounds.
+- **Per-task budget**: ~100k tokens for an implementation task, ~40k for a review. Past that, stop and report what is left; usually the task needs splitting.
+- **Delivery**: every agent follows `rules/delivery.md` (git, verification, output budget, report format). Briefs add only what is task-specific.
+- **Large files**: read by rule ID, section or line range; never load full diffs, logs or whole specs.
 
 ## Git Workflow
 
 - `main` is protected: always green, changes only through PRs.
 - One branch per task: `task/NNN-short-name` (NNN = GitHub issue number). Chores: `chore/...`.
-- Create the issue first (`task-planner`); the PR body says `Closes #N`.
-- Before opening a PR: build + `ctest` in Debug and Release (zero warnings) and a `reviewer` pass.
+- Create the issue first (`task-planner`, issue template `task`); the PR body says `Closes #N`.
+- Before opening a PR: `tools/factory check` (Debug + Release, zero warnings) and a `reviewer` pass.
 - CI must pass. Squash-merge; the branch is deleted on merge.
 
 ## Source of Truth
 
 - Spec/architecture → `docs/`
-- Work definition → `tasks/`
+- Work definition → GitHub issues (`tasks/done/` keeps tasks 001–013 as history)
 - Current behavior → source + tests
 - Decisions → ADRs

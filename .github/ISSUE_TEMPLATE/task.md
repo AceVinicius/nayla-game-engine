@@ -1,4 +1,8 @@
-# TASK-XXX: Title
+---
+name: Task
+about: A task for one agent (see .claude/rules/tasks.md)
+title: "TASK-0NN: "
+---
 
 ## Agent
 `agent-name`

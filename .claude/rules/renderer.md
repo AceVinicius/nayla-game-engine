@@ -1,3 +1,9 @@
+---
+paths:
+  - "src/renderer/**"
+  - "tests/contract/test_renderer*"
+---
+
 # Renderer Rules
 
 - Renderer uses GPU API, never a concrete GPU SDK.

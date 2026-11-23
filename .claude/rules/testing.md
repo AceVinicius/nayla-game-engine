@@ -1,3 +1,8 @@
+---
+paths:
+  - "tests/**"
+---
+
 # Testing Rules
 
 Test contracts, not incidental implementation details.

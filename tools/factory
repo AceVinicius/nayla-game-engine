@@ -1,154 +1,270 @@
 #!/bin/bash
-# factory: Game engine build and test CLI
+# factory: agent-facing build, test and PR commands with short output.
+# Contract: .claude/rules/tooling.md. Every command prints a summary, not logs.
 
-set -e
+set -uo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DEBUG="$PROJECT_DIR/cmake-build-debug"
 BUILD_RELEASE="$PROJECT_DIR/cmake-build-release"
+REPO="${FACTORY_REPO:-AceVinicius/nayla-game-engine}"
 
-cmd_build() {
-    local build_type="${1:-debug}"
-    local build_dir
+die() { echo "factory: $*" >&2; exit 2; }
 
-    if [ "$build_type" = "debug" ]; then
-        build_dir="$BUILD_DEBUG"
-        cmake_type="Debug"
-    elif [ "$build_type" = "release" ]; then
-        build_dir="$BUILD_RELEASE"
-        cmake_type="Release"
-    else
-        echo "Usage: factory build {debug|release}"
-        exit 1
-    fi
-
-    echo "Building ($build_type)..."
-    cmake -S "$PROJECT_DIR" -B "$build_dir" -DCMAKE_BUILD_TYPE="$cmake_type"
-    cmake --build "$build_dir"
-    echo "✅ Build complete: $build_dir/nayla_game_engine"
-}
-
-cmd_test() {
-    local test_type="${1:-all}"
-    local build_dir="$BUILD_DEBUG"
-
-    if [ ! -d "$build_dir" ]; then
-        echo "Build directory not found. Run 'factory build debug' first."
-        exit 1
-    fi
-
-    case "$test_type" in
-        unit)
-            echo "Running unit tests..."
-            ctest --test-dir "$build_dir" -R "^unit/" -V
-            ;;
-        contract)
-            echo "Running contract tests..."
-            ctest --test-dir "$build_dir" -R "^contract/" -V
-            ;;
-        integration)
-            echo "Running integration tests..."
-            ctest --test-dir "$build_dir" -R "^integration/" -V
-            ;;
-        architecture)
-            echo "Running architecture tests..."
-            ctest --test-dir "$build_dir" -R "^architecture/" -V
-            ;;
-        all)
-            echo "Running all tests..."
-            ctest --test-dir "$build_dir" -V
-            ;;
-        *)
-            echo "Usage: factory test {unit|contract|integration|architecture|all}"
-            exit 1
-            ;;
+build_dir() {
+    case "$1" in
+        debug) echo "$BUILD_DEBUG" ;;
+        release) echo "$BUILD_RELEASE" ;;
+        *) die "build type must be debug or release" ;;
     esac
 }
 
-cmd_clean() {
-    echo "Cleaning build directories..."
-    rm -rf "$BUILD_DEBUG" "$BUILD_RELEASE"
-    echo "✅ Clean complete"
+cmake_type() { [ "$1" = debug ] && echo Debug || echo Release; }
+
+# Ninja has exact timestamps; Makefiles compare at 1-second resolution, which
+# lets a fast edit-and-revert leave stale binaries. An existing build directory
+# keeps the generator it was configured with.
+configure() {
+    local type="$1" dir; dir="$(build_dir "$type")"
+    local gen=()
+    if [ ! -f "$dir/CMakeCache.txt" ] && command -v ninja >/dev/null 2>&1; then
+        gen=(-G Ninja)
+    fi
+    # Returns (never exits): a configure-time check firing is a result that
+    # `prove` and `check` must report, not a reason to abort.
+    local log; log="$(mktemp)" || return 1
+    cmake -S "$PROJECT_DIR" -B "$dir" ${gen[@]+"${gen[@]}"} \
+        -DCMAKE_BUILD_TYPE="$(cmake_type "$type")" \
+        -DCMAKE_COMPILE_WARNING_AS_ERROR=ON >"$log" 2>&1
+    local rc=$?
+    [ $rc -eq 0 ] || { echo "configure ($type) failed:"; grep -E 'Error|error' "$log" | head -10; }
+    rm -f "$log"
+    return $rc
+}
+
+uses_make() { grep -q 'CMAKE_GENERATOR:INTERNAL=Unix Makefiles' "$(build_dir "$1")/CMakeCache.txt" 2>/dev/null; }
+
+# Builds and prints only warning/error lines. Returns the build's status.
+build() {
+    local type="$1" clean="${2:-}" dir; dir="$(build_dir "$type")"
+    configure "$type" || return 1
+    local args=(--build "$dir")
+    [ "$clean" = clean ] && args+=(--clean-first)
+    local log; log="$(mktemp)"
+    cmake "${args[@]}" >"$log" 2>&1; local rc=$?
+    grep -E 'warning|error' "$log" | head -20
+    rm -f "$log"
+    return $rc
+}
+
+# Runs ctest; prints failing tests and their output only.
+run_tests() {
+    local type="$1" regex="${2:-}" dir; dir="$(build_dir "$type")"
+    local args=(--test-dir "$dir" --output-on-failure)
+    [ -n "$regex" ] && args+=(-R "$regex")
+    local log; log="$(mktemp)"
+    ctest "${args[@]}" >"$log" 2>&1; local rc=$?
+    if [ $rc -eq 0 ]; then
+        grep -E 'tests passed|Skipped' "$log" | tail -3
+    else
+        grep -vE '^\s*(Start|[0-9]+/[0-9]+ Test .* Passed)' "$log" | tail -40
+    fi
+    rm -f "$log"
+    return $rc
+}
+
+cmd_build() {
+    local type="${1:-debug}"
+    build "$type" && echo "build $type: OK" || { echo "build $type: FAILED"; exit 1; }
+}
+
+cmd_test() {
+    local kind="${1:-all}" type="${2:-debug}" regex=""
+    case "$kind" in
+        unit|contract|integration|architecture) regex="^$kind/" ;;
+        all) regex="" ;;
+        *) die "usage: factory test {unit|contract|integration|architecture|all} [debug|release]" ;;
+    esac
+    [ -d "$(build_dir "$type")" ] || build "$type" || exit 1
+    run_tests "$type" "$regex" || exit 1
+}
+
+# The pre-PR gate: both build types, warnings as errors, full ctest.
+cmd_check() {
+    local status=0 type out; out="$(mktemp)"
+    for type in debug release; do
+        if build "$type" clean && run_tests "$type" >"$out"; then
+            echo "$type: OK ($(grep -oE '[0-9]+% tests passed.*' "$out"))"
+        else
+            echo "$type: FAILED"; cat "$out"; status=1
+        fi
+    done
+    rm -f "$out"
+    exit $status
+}
+
+# Proves a check bites: back up FILE, run INJECT (a shell command; $F is the
+# file), rebuild, run tests matching REGEX, restore and verify the restore.
+# Prints CAUGHT (build or test failed) or MISSED (everything still passed).
+cmd_prove() {
+    [ $# -eq 3 ] || die "usage: factory prove <file> '<inject command using \$F>' <test-regex>"
+    local file="$1" inject="$2" regex="$3" type=debug
+    [ -f "$file" ] || [ ! -e "$file" ] || die "not a regular file: $file"
+    local existed=1 backup out
+    backup="$(mktemp)" && out="$(mktemp)" || die "cannot create temp files; nothing was changed"
+    if [ -f "$file" ]; then
+        cp "$file" "$backup" && cmp -s "$file" "$backup" || die "backup of $file failed; nothing was changed"
+    else
+        existed=0
+    fi
+    # Plain cp + touch (never cp -p): the restored file must look newer than
+    # the injected objects so any generator rebuilds it. Returns success only
+    # when the file is verifiably back to its original state.
+    restore() {
+        if [ $existed -eq 1 ]; then
+            cp "$backup" "$file" && touch "$file" && cmp -s "$file" "$backup"
+        else
+            rm -f "$file" && [ ! -e "$file" ]
+        fi
+    }
+    # On any abort: restore, keep the backup if the restore cannot be verified.
+    abort() {
+        trap - EXIT INT TERM
+        if restore; then
+            rm -f "$backup" "$out"; echo "prove: $1, $file restored" >&2
+        else
+            echo "prove: $1 and restoring $file FAILED; original kept at $backup" >&2
+        fi
+        exit "$2"
+    }
+    trap 'abort "exited early" 2' EXIT
+    trap 'abort interrupted 130' INT TERM
+    F="$file" bash -c "$inject" || abort "inject command failed" 2
+    touch "$file" 2>/dev/null
+    local clean=""; uses_make "$type" && clean=clean
+    local verdict
+    if ! build "$type" "$clean" >"$out" 2>&1; then
+        verdict="CAUGHT (build failed)"; head -5 "$out"
+    elif ! run_tests "$type" "$regex" >"$out"; then
+        verdict="CAUGHT (test failed)"; grep -E '✗|FAILED|Failed' "$out" | head -8
+    else
+        verdict="MISSED (build and tests still pass)"
+    fi
+    trap - EXIT INT TERM
+    if ! restore; then
+        die "restore of $file FAILED: original kept at $backup"
+    fi
+    rm -f "$backup" "$out"
+    build "$type" "$clean" >/dev/null || echo "warning: rebuild after restore failed"
+    echo "$verdict"
+    [[ "$verdict" == CAUGHT* ]]
+}
+
+# gh prints "hint:" blocks on some calls; drop them so they never reach context.
+gh_q() { gh "$@" 2>/dev/null | grep -vE '^(hint: if you need to wait|    gh event listen|  - (It prints the first event|Add `--timeout`|Events carry no details|It misses changes|See `gh event listen|Event subscriptions are in preview))'; }
+
+# Waits for every CI check on a PR, requests a Copilot review if none exists,
+# then prints the check summary, failing log lines and review comments.
+cmd_pr_wait() {
+    local pr="${1:-}"; [ -n "$pr" ] || die "usage: factory pr-wait <pr-number>"
+    local head n i
+    head="$(gh_q pr view "$pr" --repo "$REPO" --json headRefOid -q .headRefOid)"
+    [ -n "$head" ] || die "PR $pr not found (or gh is not authenticated)"
+    for i in $(seq 1 60); do
+        n="$(gh_q api "repos/$REPO/commits/$head/check-runs" -q .total_count)"
+        [ "${n:-0}" -ge 1 ] && break; sleep 10
+    done
+    # Copilot reviews of THIS head commit only; an older review never counts.
+    # Prints a count, or nothing if the API call failed.
+    copilot_reviews() {
+        gh_q api --paginate "repos/$REPO/pulls/$pr/reviews" \
+            -q "[.[]|select((.user.login|test(\"copilot\")) and .commit_id == \"$head\")]|length" \
+            | awk '{s += $1} END {if (NR) print s}'
+    }
+    [ "$(copilot_reviews)" = 0 ] && \
+        gh pr edit "$pr" --repo "$REPO" --add-reviewer copilot-pull-request-reviewer >/dev/null 2>&1
+    # Bounded wait (about 40 min): gh's --watch alone can hang on a stuck check.
+    # An empty answer (API or network error) is unknown, never PASS.
+    local rc=8 states
+    for i in $(seq 1 120); do
+        states="$(gh_q pr checks "$pr" --repo "$REPO" | awk -F'\t' '{print $2}')"
+        if [ -n "$states" ] && ! printf '%s\n' "$states" | grep -qE 'pending|queued|in_progress'; then
+            if printf '%s\n' "$states" | grep -qE 'fail|cancel'; then rc=1; else rc=0; fi
+            break
+        fi
+        sleep 20
+    done
+    local verdict="STILL RUNNING OR UNKNOWN (timed out)"
+    [ $rc -eq 0 ] && verdict=PASS
+    [ $rc -eq 1 ] && verdict=FAIL
+    echo "PR $pr @ ${head:0:7}: checks $verdict"
+    gh_q pr checks "$pr" --repo "$REPO" | awk -F'\t' '$2 != "pass" {print "  " $1 ": " $2}'
+    if [ $rc -eq 1 ]; then
+        local run; run="$(gh_q run list --repo "$REPO" --commit "$head" --workflow CI --limit 1 --json databaseId -q '.[0].databaseId')"
+        [ -n "$run" ] && gh_q run view "$run" --repo "$REPO" --log-failed | grep -E 'error|Error|FAILED|✗' | sed 's/^.*Z //' | head -20
+    fi
+    local reviews=""
+    for i in $(seq 1 40); do
+        reviews="$(copilot_reviews)"
+        case "$reviews" in ''|*[!0-9]*|0) sleep 15 ;; *) break ;; esac
+    done
+    case "$reviews" in
+        ''|*[!0-9]*|0)
+            echo "copilot: no review of ${head:0:7} received (timed out or API error)"
+            [ $rc -eq 0 ] && rc=9 ;;
+        *)
+            gh_q api --paginate "repos/$REPO/pulls/$pr/reviews" \
+                -q ".[]|select((.user.login|test(\"copilot\")) and .commit_id == \"$head\")|\"copilot: \" + (.body|split(\"\n\")|map(select(test(\"^### \")))|join(\" \"))" ;;
+    esac
+    gh_q api --paginate "repos/$REPO/pulls/$pr/comments" \
+        -q ".[]|select(.in_reply_to_id==null and .commit_id == \"$head\")|\"  [\" + .path + \":\" + ((.line // .original_line)|tostring) + \"] (id \" + (.id|tostring) + \") \" + .body"
+    gh_q pr view "$pr" --repo "$REPO" --json mergeStateStatus -q '"merge state: " + .mergeStateStatus'
+    # gh pr checks follows the live head; the reviews above are pinned to $head.
+    # A push during the wait would mix the two, so success needs the same head.
+    local now; now="$(gh_q pr view "$pr" --repo "$REPO" --json headRefOid -q .headRefOid)"
+    if [ "$now" != "$head" ]; then
+        echo "head changed during the wait (${head:0:7} -> ${now:0:7}, or unknown): rerun pr-wait"
+        [ $rc -eq 0 ] && rc=10
+    fi
+    return $rc
 }
 
 cmd_status() {
-    echo "=== Factory Status ==="
-    echo ""
-    echo "Project directory: $PROJECT_DIR"
-    echo ""
-
-    if [ -d "$BUILD_DEBUG" ]; then
-        echo "✓ Debug build exists: $BUILD_DEBUG"
-        if [ -f "$BUILD_DEBUG/nayla_game_engine" ]; then
-            echo "  Executable: $BUILD_DEBUG/nayla_game_engine"
+    local type dir
+    for type in debug release; do
+        dir="$(build_dir "$type")"
+        if [ -f "$dir/CMakeCache.txt" ]; then
+            echo "$type: configured ($(sed -n 's/^CMAKE_GENERATOR:INTERNAL=//p' "$dir/CMakeCache.txt"))"
+        else
+            echo "$type: not configured"
         fi
-    else
-        echo "✗ Debug build not found"
-    fi
-
-    if [ -d "$BUILD_RELEASE" ]; then
-        echo "✓ Release build exists: $BUILD_RELEASE"
-        if [ -f "$BUILD_RELEASE/nayla_game_engine" ]; then
-            echo "  Executable: $BUILD_RELEASE/nayla_game_engine"
-        fi
-    else
-        echo "✗ Release build not found"
-    fi
-
-    echo ""
-    echo "Usage:"
-    echo "  factory build {debug|release}"
-    echo "  factory test {unit|contract|integration|architecture|all}"
-    echo "  factory clean"
-    echo "  factory status"
+    done
+    command -v ninja >/dev/null 2>&1 && echo "ninja: yes" || echo "ninja: no (Makefiles; see rules/tooling.md)"
+    echo "branch: $(git -C "$PROJECT_DIR" rev-parse --abbrev-ref HEAD)  $(git -C "$PROJECT_DIR" status --short | wc -l | tr -d ' ') changed file(s)"
 }
 
 cmd_search() {
-    if [ -z "$1" ]; then
-        echo "Usage: factory search <pattern>"
-        exit 1
-    fi
-    grep -r "$1" "$PROJECT_DIR/src" "$PROJECT_DIR/tests" 2>/dev/null || echo "No matches found"
+    [ -n "${1:-}" ] || die "usage: factory search <pattern>"
+    local hits; hits="$(grep -rn -- "$1" "$PROJECT_DIR/src" "$PROJECT_DIR/tests" 2>/dev/null)"
+    [ -n "$hits" ] && printf '%s\n' "$hits" | head -50 || echo "No matches found"
 }
 
 cmd_inspect() {
-    if [ -z "$1" ]; then
-        echo "Usage: factory inspect <path>"
-        exit 1
-    fi
-    echo "Inspecting: $1"
-    if [ -f "$1" ]; then
-        head -20 "$1"
-    elif [ -d "$1" ]; then
-        ls -la "$1"
-    else
-        echo "Not found: $1"
-        exit 1
-    fi
+    [ -n "${1:-}" ] || die "usage: factory inspect <path>"
+    if [ -f "$1" ]; then head -40 "$1"; elif [ -d "$1" ]; then ls -la "$1"; else die "not found: $1"; fi
 }
 
-# Main
+cmd_clean() { rm -rf "$BUILD_DEBUG" "$BUILD_RELEASE" && echo "clean: OK"; }
+
 case "${1:-status}" in
-    build)
-        cmd_build "$2"
-        ;;
-    test)
-        cmd_test "$2"
-        ;;
-    clean)
-        cmd_clean
-        ;;
-    status)
-        cmd_status
-        ;;
-    search)
-        cmd_search "$2"
-        ;;
-    inspect)
-        cmd_inspect "$2"
-        ;;
-    *)
-        echo "Usage: factory {build,test,clean,status,search,inspect}"
-        exit 1
-        ;;
+    build) shift; cmd_build "$@" ;;
+    test) shift; cmd_test "$@" ;;
+    check) cmd_check ;;
+    prove) shift; cmd_prove "$@" ;;
+    pr-wait) shift; cmd_pr_wait "$@" ;;
+    status) cmd_status ;;
+    search) shift; cmd_search "$@" ;;
+    inspect) shift; cmd_inspect "$@" ;;
+    clean) cmd_clean ;;
+    *) die "usage: factory {check|prove|pr-wait|build|test|status|search|inspect|clean}" ;;
 esac

@@ -10,7 +10,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Docs-only PRs (docs/, *.md) skip the build steps. The jobs still run, so every
+  # required matrix check reports success. Any doubt (push, diff error) builds.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.scope.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.base_ref }}
+        run: |
+          code=true
+          if [ "$EVENT" = "pull_request" ] && files="$(git diff --name-only --no-renames "origin/$BASE...HEAD")" \
+             && [ -n "$files" ] && ! printf '%s\n' "$files" | grep -qvE '^docs/|\.md$'; then
+            code=false
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
   build-test:
+    needs: changes
     name: ${{ matrix.os }} / ${{ matrix.build_type }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -23,6 +46,7 @@ jobs:
 
       # The project requires a recent CMake (see CMakeLists.txt).
       - name: Install CMake and Ninja
+        if: needs.changes.outputs.code == 'true'
         run: |
           python3 -m venv "$RUNNER_TEMP/tools"
           "$RUNNER_TEMP/tools/bin/pip" install --upgrade cmake ninja
@@ -32,19 +56,21 @@ jobs:
       # x11, wayland-client and libdecor-0; wayland-scanner (libwayland-bin) and
       # wayland-protocols supply the protocol glue. macOS needs none of these.
       - name: Install Linux backend dependencies
-        if: startsWith(matrix.os, 'ubuntu')
+        if: needs.changes.outputs.code == 'true' && startsWith(matrix.os, 'ubuntu')
         run: |
           sudo apt-get update
           sudo apt-get install -y pkg-config libx11-dev libwayland-dev libwayland-bin wayland-protocols libdecor-0-dev
 
       # Warnings are errors: the project's bar is zero warnings.
       - name: Configure
+        if: needs.changes.outputs.code == 'true'
         run: >
           cmake -S . -B build -G Ninja
           -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
           -DCMAKE_COMPILE_WARNING_AS_ERROR=ON
 
       - name: Build
+        if: needs.changes.outputs.code == 'true'
         run: cmake --build build
 
       # Includes the architecture tests (no OS/GPU includes, no globals, ...).
@@ -52,6 +78,7 @@ jobs:
       # there. macOS does not, so a missing window session fails it. The -V line
       # prints the test's output, which is how the skip reason reaches the log.
       - name: Test
+        if: needs.changes.outputs.code == 'true'
         env:
           NAYLA_TEST_NO_DISPLAY: ${{ startsWith(matrix.os, 'ubuntu') && '1' || '' }}
         run: |
@@ -62,11 +89,13 @@ jobs:
   # overflow, leaks (the allocator does pointer/alignment arithmetic).
   sanitizers:
     name: sanitizers (ubuntu)
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
       - name: Install CMake and Ninja
+        if: needs.changes.outputs.code == 'true'
         run: |
           python3 -m venv "$RUNNER_TEMP/tools"
           "$RUNNER_TEMP/tools/bin/pip" install --upgrade cmake ninja
@@ -74,22 +103,26 @@ jobs:
 
       # Linux backend build dependencies (ADR-012 follow-up 2); see build-test.
       - name: Install Linux backend dependencies
+        if: needs.changes.outputs.code == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y pkg-config libx11-dev libwayland-dev libwayland-bin wayland-protocols libdecor-0-dev
 
       - name: Configure
+        if: needs.changes.outputs.code == 'true'
         run: >
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
           -DCMAKE_COMPILE_WARNING_AS_ERROR=ON
           -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer"
 
       - name: Build
+        if: needs.changes.outputs.code == 'true'
         run: cmake --build build
 
       # Headless declared (PLATFORM-101): this job runs on ubuntu-latest. The -V line
       # prints the skip reason of contract/platform_window.
       - name: Test
+        if: needs.changes.outputs.code == 'true'
         env:
           NAYLA_TEST_NO_DISPLAY: "1"
         run: |
