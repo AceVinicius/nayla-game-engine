@@ -1,5 +1,0 @@
-# Copy locally to tools/factory-env; do not commit.
-# NOTE: not yet read by tools/factory — planned, see docs/architecture/tooling-layer.md.
-# export FACTORY_MAX_LINES=120
-# export FACTORY_MAX_DIFF_LINES=500
-# export FACTORY_MAX_SEARCH_LINES=120

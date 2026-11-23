@@ -77,7 +77,7 @@ Independent tasks run in parallel (one agent per task, each in its own worktree)
 The main session is the most expensive context: every step re-reads its whole history. Measured: one session ran 3 days and about 20 PRs at a median 0.5M tokens per step, more than all its subagents together.
 - **Delegate, don't do.** No code edits, builds or test runs here. Review fixes go back to the implementer (`SendMessage`), not into the orchestrator's hands. Allowed here: git/gh plumbing, `tools/factory pr-wait`, merges.
 - **Keep the session short.** State lives in GitHub issues and PRs, so a restart loses nothing. Start a new session (or `/compact`) after each milestone or every 3–4 merged PRs, and whenever context passes ~200k.
-- **Briefs**: the issue number plus only what the issue does not already say.
+- **Briefs**: the issue number plus only what the issue does not already say; agents read it with `tools/factory issue <n>`.
 
 ## Git Workflow
 

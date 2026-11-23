@@ -1,8 +1,0 @@
-# Copy locally to tools/factory-config; do not commit.
-# NOTE: not yet read by tools/factory — planned, see docs/architecture/tooling-layer.md.
-FACTORY_MAX_LINES=120
-FACTORY_MAX_DIFF_LINES=500
-FACTORY_MAX_SEARCH_LINES=120
-# Optional accelerators:
-# FACTORY_RTK=1
-# FACTORY_CAVEMAN=1

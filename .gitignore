@@ -74,7 +74,6 @@ cmake-build-*/
 #   .claude/CLAUDE.md
 #   .claude/agents/
 #   .claude/rules/
-#   .claude/workflows/
 #
 # Ignore only local/runtime state.
 
@@ -381,7 +380,6 @@ docs/.cache/
 
 # Keep authored documentation:
 # docs/spec/
-# docs/architecture/
 # docs/adr/
 
 # ------------------------------------------------------------

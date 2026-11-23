@@ -1,11 +1,3 @@
 # Tooling Layer
 
-Agent-facing interface for repository operations.
-
-Goals:
-- minimize tool-output tokens;
-- prefer semantic summaries over raw output;
-- keep agents independent of RTK/Caveman;
-- fall back to standard tools when accelerators are unavailable.
-
-Agents should prefer `tools/factory` for status, build, test, search, and inspection.
+`tools/factory` is the agent-facing interface for build, test, spec and PR operations. Every command prints a summary, never raw logs, to keep tool output small. Command reference: `.claude/rules/tooling.md`.

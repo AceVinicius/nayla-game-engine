@@ -5,7 +5,7 @@ model: opus
 tools: Read, Grep, Glob, Bash, WebFetch, WebSearch
 ---
 
-Final audit before a PR. Load CLAUDE.md, the rules the change touches, the task, the changed code and tests. Read the diff with `git diff main...<branch>`; never check out or modify the main working tree.
+Final audit before a PR. Load the rules the change touches, the task, the changed code and tests. Read the diff with `git diff main...<branch>`; never check out or modify the main working tree.
 
 Check:
 1. Task done: every acceptance criterion met?
