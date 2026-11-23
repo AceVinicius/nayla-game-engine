@@ -38,7 +38,7 @@ configure() {
         -DCMAKE_BUILD_TYPE="$(cmake_type "$type")" \
         -DCMAKE_COMPILE_WARNING_AS_ERROR=ON >"$log" 2>&1
     local rc=$?
-    [ $rc -eq 0 ] || { echo "configure ($type) failed:"; grep -E 'Error|error' "$log" | head -10; }
+    [ $rc -eq 0 ] || { echo "configure ($type) failed:"; diagnostics "$log" | head -20; }
     rm -f "$log"
     return $rc
 }
@@ -58,9 +58,9 @@ build() {
     return $rc
 }
 
-# Diagnostic lines only: compiler messages, linker symbol lines, FAILED
-# targets, and each "ERROR:" (cmake/forbid-pattern.sh) or "CMake Error" block
-# with the lines that follow it. Drops compiler command lines (they contain
+# Diagnostic lines only, for build and configure logs: compiler messages,
+# linker symbol lines, FAILED targets, and each "ERROR:" (forbid-pattern.sh)
+# or "CMake Error" block with the lines that follow it. Drops compiler command lines (they contain
 # -Werror), "N errors generated." and repeats; paths become repo-relative.
 diagnostics() {
     awk -v p="$PROJECT_DIR/" '
@@ -70,7 +70,10 @@ diagnostics() {
         block > 0 && !/^(\[[0-9]|FAILED|ninja|make|gmake)/ { block--; emit(); next }
         { block = 0 }
         /^[^[:space:]:]+:[0-9]+(:[0-9]+)?: (fatal error|error|warning|note)/ { emit(); next }
-        /^[[:space:]]*(\[[0-9]+\/[0-9]+\][[:space:]]+)?(: && |cd [^&]*&& )?[^[:space:]]*(cc|c\+\+|clang|gcc|g\+\+|cl\.exe|link\.exe|ld)[[:space:]].* -[co][[:space:]]/ { next }
+        # Command lines, by shape rather than compiler name (clang-18, ccache, ...):
+        # an output flag plus a compile or warning flag. Real file:line
+        # diagnostics were already printed above.
+        / -o[[:space:]]/ && / -(c|W[^[:space:]]*)[[:space:]]/ { next }
         /^[0-9]+ (warning|error)s? generated/ { next }
         /warning|error|Error|FAILED|Undefined symbols|undefined reference|referenced from|duplicate symbol|multiple definition|^ld: / { emit() }' "$1"
 }
