@@ -6,6 +6,7 @@
  * No file-scope mutable state (PLATFORM-090): the ops tables are const and the
  * environment is read once, inside platform_init. */
 
+#include <limits.h>
 #include <stdalign.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -56,6 +57,14 @@ void platform_linux_enter_lost(Platform *platform, const char *detail) {
     for (PlatformWindow *window = platform->windows; window; window = window->next) {
         platform_linux_request_close(window);
     }
+}
+
+int platform_linux_timeout_ms(uint64_t timeout_ns) {
+    if (timeout_ns == UINT64_MAX) {
+        return -1;
+    }
+    uint64_t ms = timeout_ns / 1000000u + (timeout_ns % 1000000u != 0 ? 1u : 0u);
+    return ms > (uint64_t)INT_MAX ? INT_MAX : (int)ms;
 }
 
 void platform_loss_init(PlatformLoss *loss) {

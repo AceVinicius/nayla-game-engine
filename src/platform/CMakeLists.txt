@@ -45,7 +45,8 @@ if(NAYLA_PLATFORM_BACKEND STREQUAL "linux")
   # x11 >= 1.7: per-Display XSetIOErrorExitHandler (ADR-012 Decision 6).
   pkg_check_modules(NAYLA_X11 REQUIRED IMPORTED_TARGET x11>=1.7)
   pkg_check_modules(NAYLA_WAYLAND_CLIENT REQUIRED IMPORTED_TARGET wayland-client)
-  pkg_check_modules(NAYLA_LIBDECOR REQUIRED IMPORTED_TARGET libdecor-0)
+  # libdecor >= 0.2.0: LIBDECOR_WINDOW_STATE_SUSPENDED (absent in 0.1.1), used by wayland.c.
+  pkg_check_modules(NAYLA_LIBDECOR REQUIRED IMPORTED_TARGET libdecor-0>=0.2.0)
   # fractional-scale-v1 is a staging protocol; it first shipped in wayland-protocols 1.31.
   pkg_check_modules(NAYLA_WAYLAND_PROTOCOLS REQUIRED wayland-protocols>=1.31)
   pkg_get_variable(_nayla_wl_scanner_pc wayland-scanner wayland_scanner)
@@ -65,9 +66,8 @@ if(NAYLA_PLATFORM_BACKEND STREQUAL "linux")
   endforeach()
 
   # Generated into the BUILD tree, never under src/: the forbid_* greps above
-  # and below scan only src/, so they never see this glue. Whether generated
-  # sources count as src/platform/linux for PLATFORM-094 is the open question in
-  # issue #59; this block does not decide it.
+  # and below scan only src/, so they never see this glue. Only wayland.c, which
+  # is under src/platform/linux, includes the generated headers (PLATFORM-094).
   set(_nayla_wl_gen_dir ${CMAKE_CURRENT_BINARY_DIR}/wayland)
   file(MAKE_DIRECTORY "${_nayla_wl_gen_dir}")
   set(_nayla_linux_generated "")
