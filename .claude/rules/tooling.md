@@ -2,6 +2,9 @@
 
 Use `tools/factory` for routine operations; it keeps output short:
 - `tools/factory check`: configure, build and test Debug and Release, warnings as errors; one summary line per build type, failures only.
+- `tools/factory check --ref <branch>`: the same gate on a temporary worktree of another branch or commit (reviewers); the worktree is removed afterwards.
+- `tools/factory toc <spec.md>`: headings with line numbers and the rule IDs each section defines.
+- `tools/factory rule <ID>...`: print just those rule definitions (`**<ID>` paragraphs in `docs/`) with file:line. Use instead of reading a whole spec.
 - `tools/factory prove <file> <patch-cmd> <test-regex>`: prove a check bites (back up, inject, rebuild, run, restore, verify).
 - `tools/factory build {debug|release}`, `tools/factory test {unit|contract|integration|architecture|all}`.
 - `tools/factory pr-wait <pr>`: wait for CI and Copilot on a PR; print only failures and review comments.

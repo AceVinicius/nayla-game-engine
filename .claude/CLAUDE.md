@@ -70,7 +70,14 @@ Independent tasks run in parallel (one agent per task, each in its own worktree)
 - **Models**: implementers (`*-engineer`, `test-engineer`) use Sonnet. Design, specs and review (`architect`, `gpu-architect`, `spec-writer`, `task-planner`, `reviewer`) use Opus. Mechanical audits (`dependency-auditor`) use Haiku. First-pass correctness costs less than fix rounds.
 - **Per-task budget**: ~100k tokens for an implementation task, ~40k for a review. Past that, stop and report what is left; usually the task needs splitting.
 - **Delivery**: every agent follows `rules/delivery.md` (git, verification, output budget, report format). Briefs add only what is task-specific.
-- **Large files**: read by rule ID, section or line range; never load full diffs, logs or whole specs.
+- **Large files**: read by rule ID, section or line range; never load full diffs, logs or whole specs. Specs: `tools/factory toc <spec>` then `tools/factory rule <ID>…`; read a whole spec only when the task is a spec review.
+
+## Orchestrator
+
+The main session is the most expensive context: every step re-reads its whole history. Measured: one session ran 3 days and about 20 PRs at a median 0.5M tokens per step, more than all its subagents together.
+- **Delegate, don't do.** No code edits, builds or test runs here. Review fixes go back to the implementer (`SendMessage`), not into the orchestrator's hands. Allowed here: git/gh plumbing, `tools/factory pr-wait`, merges.
+- **Keep the session short.** State lives in GitHub issues and PRs, so a restart loses nothing. Start a new session (or `/compact`) after each milestone or every 3–4 merged PRs, and whenever context passes ~200k.
+- **Briefs**: the issue number plus only what the issue does not already say.
 
 ## Git Workflow
 

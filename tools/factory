@@ -4,7 +4,8 @@
 
 set -uo pipefail
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# FACTORY_ROOT points the commands at another checkout (used by `check --ref`).
+PROJECT_DIR="${FACTORY_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 BUILD_DEBUG="$PROJECT_DIR/cmake-build-debug"
 BUILD_RELEASE="$PROJECT_DIR/cmake-build-release"
 REPO="${FACTORY_REPO:-AceVinicius/nayla-game-engine}"
@@ -90,7 +91,23 @@ cmd_test() {
 }
 
 # The pre-PR gate: both build types, warnings as errors, full ctest.
+# `check --ref <ref>` runs it on a temporary detached worktree of <ref>, so a
+# reviewer can build a branch without touching any checkout.
 cmd_check() {
+    if [ $# -gt 0 ]; then
+        [ "$1" = --ref ] && [ -n "${2:-}" ] || die "usage: factory check [--ref <branch|commit>]"
+        local tree
+        tree="$(mktemp -d)" || die "cannot create a temporary directory"
+        git -C "$PROJECT_DIR" worktree add -q --detach "$tree" "$2" 2>/dev/null \
+            || { rmdir "$tree"; die "cannot check out $2"; }
+        # EXIT also fires on interrupt: the worktree never outlives the command.
+        local q; q="$(printf %q "$tree")"
+        trap "git -C $(printf %q "$PROJECT_DIR") worktree remove --force $q 2>/dev/null \
+            || echo \"warning: could not remove worktree \"$q >&2" EXIT
+        echo "ref $2 @ $(git -C "$tree" rev-parse --short HEAD)"
+        FACTORY_ROOT="$tree" "${BASH_SOURCE[0]}" check
+        exit $?
+    fi
     local status=0 type out; out="$(mktemp)"
     for type in debug release; do
         if build "$type" clean && run_tests "$type" >"$out"; then
@@ -254,17 +271,77 @@ cmd_inspect() {
     if [ -f "$1" ]; then head -40 "$1"; elif [ -d "$1" ]; then ls -la "$1"; else die "not found: $1"; fi
 }
 
+# Rule definitions in docs/ are paragraphs that start with `**<ID>`, e.g.
+# `**PLAT-INV-3.**` or `**CORE-LOG-010 (title).**`.
+
+# Prints each rule's definition: from its `**<ID>` line up to the next rule
+# definition or heading, so lists and code blocks that belong to it come along.
+cmd_rule() {
+    [ $# -ge 1 ] || die "usage: factory rule <ID>... (e.g. PLAT-INV-3 CORE-LOG-010)"
+    local files id status=0
+    files="$(find "$PROJECT_DIR/docs" -name '*.md' | sort)"
+    for id in "$@"; do
+        # shellcheck disable=SC2086 # one path per line, no spaces in docs/
+        awk -v id="$id" -v root="$PROJECT_DIR/" '
+            FNR == 1 { on = 0; code = 0; blanks = 0 }
+            {
+                fence = ($0 ~ /^```/)
+                if (!code) {
+                    head = "**" id
+                    if (substr($0, 1, length(head)) == head &&
+                        substr($0, length(head) + 1, 1) !~ /[A-Za-z0-9-]/) {
+                        if (found++) print ""
+                        f = FILENAME
+                        if (index(f, root) == 1) f = substr(f, length(root) + 1)
+                        print f ":" FNR; on = 1; blanks = 0
+                    } else if (on && ($0 ~ /^\*\*[A-Z]+(-[A-Z]+)*-[0-9]/ || $0 ~ /^#/)) on = 0
+                }
+                if (on) {
+                    if ($0 == "") blanks++
+                    else { for (; blanks > 0; blanks--) print ""; print }
+                }
+                if (fence) code = !code
+            }
+            END { exit found ? 0 : 1 }' $files || { echo "$id: not found"; status=1; }
+    done
+    return $status
+}
+
+# Prints a spec's headings with line numbers and the rule IDs each section
+# defines, so an agent can read one section or rule instead of the whole file.
+cmd_toc() {
+    [ -f "${1:-}" ] || die "usage: factory toc <spec.md>"
+    awk '
+        function flush() {
+            if (h == "") return
+            line = sprintf("%5d  %s", hl, h)
+            if (n == 1) line = line "  [" first "]"
+            if (n > 1) line = line "  [" first " .. " last ", " n " rules]"
+            print line
+        }
+        /^```/ { code = !code }
+        !code && /^##?#?#? / { flush(); h = $0; hl = NR; n = 0; next }
+        !code && match($0, /^\*\*[A-Z]+(-[A-Z]+)*-[0-9]/) {
+            id = substr($0, 3); sub(/[^A-Za-z0-9-].*/, "", id)
+            if (!n++) first = id
+            last = id
+        }
+        END { flush() }' "$1"
+}
+
 cmd_clean() { rm -rf "$BUILD_DEBUG" "$BUILD_RELEASE" && echo "clean: OK"; }
 
 case "${1:-status}" in
     build) shift; cmd_build "$@" ;;
     test) shift; cmd_test "$@" ;;
-    check) cmd_check ;;
+    check) shift; cmd_check "$@" ;;
+    rule) shift; cmd_rule "$@" ;;
+    toc) shift; cmd_toc "$@" ;;
     prove) shift; cmd_prove "$@" ;;
     pr-wait) shift; cmd_pr_wait "$@" ;;
     status) cmd_status ;;
     search) shift; cmd_search "$@" ;;
     inspect) shift; cmd_inspect "$@" ;;
     clean) cmd_clean ;;
-    *) die "usage: factory {check|prove|pr-wait|build|test|status|search|inspect|clean}" ;;
+    *) die "usage: factory {check [--ref <ref>]|prove|pr-wait|rule|toc|build|test|status|search|inspect|clean}" ;;
 esac
