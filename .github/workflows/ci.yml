@@ -59,7 +59,22 @@ jobs:
         if: needs.changes.outputs.code == 'true' && startsWith(matrix.os, 'ubuntu')
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libx11-dev libwayland-dev libwayland-bin wayland-protocols libdecor-0-dev
+          sudo apt-get install -y pkg-config libx11-dev libwayland-dev libwayland-bin wayland-protocols libdecor-0-dev xvfb x11-utils
+
+      # Display server (ADR-012 Decision 5, PLATFORM-101): window conformance needs
+      # one, so Xvfb runs and no job declares a headless host. Tests start only
+      # after the X display answers.
+      - name: Start Xvfb
+        if: needs.changes.outputs.code == 'true' && startsWith(matrix.os, 'ubuntu')
+        run: |
+          Xvfb :99 -screen 0 1280x720x24 &
+          echo "DISPLAY=:99" >> "$GITHUB_ENV"
+          for _ in $(seq 50); do
+            DISPLAY=:99 xdpyinfo >/dev/null 2>&1 && exit 0
+            sleep 0.1
+          done
+          echo "Xvfb did not come up on :99" >&2
+          exit 1
 
       # Warnings are errors: the project's bar is zero warnings.
       - name: Configure
@@ -74,13 +89,11 @@ jobs:
         run: cmake --build build
 
       # Includes the architecture tests (no OS/GPU includes, no globals, ...).
-      # Ubuntu declares a headless host (PLATFORM-101): contract/platform_window skips
-      # there. macOS does not, so a missing window session fails it. The -V line
-      # prints the test's output, which is how the skip reason reaches the log.
+      # No job declares a headless host (PLATFORM-101): contract/platform_window
+      # must run, so a missing window session fails it. Ubuntu runs it against
+      # Xvfb with automatic selection. The -V line prints the test's output.
       - name: Test
         if: needs.changes.outputs.code == 'true'
-        env:
-          NAYLA_TEST_NO_DISPLAY: ${{ startsWith(matrix.os, 'ubuntu') && '1' || '' }}
         run: |
           ctest --test-dir build -R contract/platform_window -V
           ctest --test-dir build --output-on-failure
@@ -106,7 +119,22 @@ jobs:
         if: needs.changes.outputs.code == 'true'
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libx11-dev libwayland-dev libwayland-bin wayland-protocols libdecor-0-dev
+          sudo apt-get install -y pkg-config libx11-dev libwayland-dev libwayland-bin wayland-protocols libdecor-0-dev xvfb x11-utils
+
+      # Display server (ADR-012 Decision 5, PLATFORM-101): window conformance needs
+      # one, so Xvfb runs and no job declares a headless host. Tests start only
+      # after the X display answers.
+      - name: Start Xvfb
+        if: needs.changes.outputs.code == 'true'
+        run: |
+          Xvfb :99 -screen 0 1280x720x24 &
+          echo "DISPLAY=:99" >> "$GITHUB_ENV"
+          for _ in $(seq 50); do
+            DISPLAY=:99 xdpyinfo >/dev/null 2>&1 && exit 0
+            sleep 0.1
+          done
+          echo "Xvfb did not come up on :99" >&2
+          exit 1
 
       - name: Configure
         if: needs.changes.outputs.code == 'true'
@@ -119,12 +147,12 @@ jobs:
         if: needs.changes.outputs.code == 'true'
         run: cmake --build build
 
-      # Headless declared (PLATFORM-101): this job runs on ubuntu-latest. The -V line
-      # prints the skip reason of contract/platform_window.
+      # x11 forced (ADR-012 Decision 5): the window suite runs on the X11 path under
+      # Xvfb, and a forced system whose server is down is a FAIL (PLATFORM-092).
       - name: Test
         if: needs.changes.outputs.code == 'true'
         env:
-          NAYLA_TEST_NO_DISPLAY: "1"
+          NAYLA_LINUX_WINDOW_SYSTEM: x11
         run: |
           ctest --test-dir build -R contract/platform_window -V
           ctest --test-dir build --output-on-failure
