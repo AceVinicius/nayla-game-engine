@@ -8,6 +8,7 @@
 
 #include <stdalign.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -57,13 +58,36 @@ void platform_linux_enter_lost(Platform *platform, const char *detail) {
     }
 }
 
+void platform_loss_init(PlatformLoss *loss) {
+    atomic_init(&loss->lost, false);
+    atomic_init(&loss->error, 0);
+    loss->saved_handler = NULL;
+}
+
+void platform_loss_move(PlatformLoss *to, const PlatformLoss *from) {
+    atomic_init(&to->lost, atomic_load(&from->lost));
+    atomic_init(&to->error, atomic_load(&from->error));
+    to->saved_handler = from->saved_handler;
+}
+
+bool platform_linux_check_lost(Platform *platform) {
+    if (!platform->lost && atomic_load(&platform->loss.lost)) {
+        char detail[64];
+        (void)snprintf(detail, sizeof detail, "I/O error, errno %d", atomic_load(&platform->loss.error));
+        platform_linux_enter_lost(platform, detail);
+    }
+    return platform->lost;
+}
+
 /* ---- Lifecycle (PLATFORM-033..036, ADR-012 Decision 1) ------------------- */
 
 /* PLATFORM-033: probe first (no EngineAllocator allocation), then allocate and
  * adopt the connection. A failed attempt releases everything it acquired. */
 static EngineResult platform_try_open(const PlatformOps *ops, const EngineAllocator *allocator,
                                       const EngineLogger *logger, Platform **out_platform) {
-    PlatformConnection connection = {NULL};
+    PlatformConnection connection;
+    connection.display = NULL;
+    platform_loss_init(&connection.loss);
     EngineResult result = ops->connect(logger, &connection);
     if (result != ENGINE_RESULT_SUCCESS) {
         return result;
@@ -169,7 +193,9 @@ EngineResult platform_window_create(PlatformWindow **out_window,
     if (result != ENGINE_RESULT_SUCCESS) {
         return result;
     }
-    if (platform->lost) {
+    /* A loss recorded since the last pump must be seen before any allocation, so
+     * a dead connection reports NOT_SUPPORTED, never OUT_OF_MEMORY. */
+    if (platform_linux_check_lost(platform)) {
         ENGINE_LOG_ERROR(platform->logger, "Platform", "platform_window_create: the window-system connection is lost");
         return ENGINE_RESULT_NOT_SUPPORTED;
     }
@@ -256,13 +282,13 @@ EngineResult platform_window_get_native(const PlatformWindow *window,
 
 void platform_pump_events(Platform *platform) {
     /* PLATFORM-043: in the lost state nothing is left to pump. */
-    if (platform && !platform->lost) {
+    if (platform && !platform_linux_check_lost(platform)) {
         platform->ops->pump(platform);
     }
 }
 
 void platform_wait_events(Platform *platform, uint64_t timeout_ns) {
-    if (!platform || platform->lost) {
+    if (!platform || platform_linux_check_lost(platform)) {
         return;
     }
     if (timeout_ns == 0) {

@@ -7,6 +7,7 @@
  * below as its first member. The base holds everything the two paths share;
  * a path's own struct adds its handles. No window-system header here. */
 
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -17,10 +18,22 @@
 
 typedef struct PlatformOps PlatformOps;
 
+/* Connection-loss record (ADR-012 Decision 6). A path's loss callback may run
+ * inside a library call on any thread, so it only writes this record; the
+ * platform thread promotes it with platform_linux_check_lost. It exists from
+ * the moment the connection is made, so loss is detected during connect, adopt
+ * and their cleanup too. */
+typedef struct PlatformLoss {
+    atomic_bool lost;
+    atomic_int  error;                  /* errno at the loss */
+    void      (*saved_handler)(void);   /* the process-global handler to restore, path-defined */
+} PlatformLoss;
+
 /* A window-system connection made before anything is allocated (PLATFORM-033):
  * the path's own handle, kept as an engine-defined opaque type. */
 typedef struct PlatformConnection {
     PlatformNativeObject *display;
+    PlatformLoss          loss;
 } PlatformConnection;
 
 struct Platform {
@@ -30,6 +43,7 @@ struct Platform {
     PlatformEventQueue     queue;       /* PLATFORM-052 */
     PlatformWindow        *windows;     /* live windows, doubly linked */
     bool                   lost;        /* terminal state after connection loss (PLATFORM-043) */
+    PlatformLoss           loss;        /* recorded by the path's callback, any thread */
 };
 
 struct PlatformWindow {
@@ -81,6 +95,17 @@ void platform_linux_set_window_state(PlatformWindow *window, uint32_t width, uin
 
 /* PLATFORM-043: sets the sticky flag; queues CLOSE_REQUESTED the first time only. */
 void platform_linux_request_close(PlatformWindow *window);
+
+/* Starts a loss record: not lost, no saved handler. */
+void platform_loss_init(PlatformLoss *loss);
+/* Moves a connection's record into the Platform that adopts it. Call before
+ * any other thread can see the Platform. */
+void platform_loss_move(PlatformLoss *to, const PlatformLoss *from);
+
+/* Platform thread: promotes a loss recorded by a callback into the lost state
+ * (PLATFORM-043) and returns whether the Platform is lost. Call before any
+ * window-system call or allocation that would use the connection. */
+bool platform_linux_check_lost(Platform *platform);
 
 /* PLATFORM-043, ADR-012 Decision 6: enters the terminal lost state (once).
  * Logs ERROR with `detail`, then treats it as an application-level quit. */

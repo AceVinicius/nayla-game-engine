@@ -262,6 +262,36 @@ static int test_init_probes_before_allocating(void) {
     CHECK(calls == 0, "the allocator was called %d times before the probe failed", calls);
     return 0;
 }
+
+/* X11 sizes are 16-bit on the wire, so 65536 must be refused up front
+ * (NOT_SUPPORTED, nothing created) instead of wrapping to 0 and killing the
+ * process through Xlib's default error handler. Needs a reachable window
+ * system; without one platform_init fails first and there is nothing to test
+ * (the Linux CI jobs under Xvfb run it). */
+static int test_oversize_window_is_refused(void) {
+    Platform *platform = NULL;
+    EngineResult init = platform_init(&platform, NULL, NULL);
+    if (init != ENGINE_RESULT_SUCCESS) {
+        fprintf(stderr, "skip: no window system reachable; oversize window size not exercised\n");
+        return 0;
+    }
+    char sentinel = 0;
+    PlatformWindow *const poison = (PlatformWindow *)&sentinel;
+    PlatformWindowDesc too_wide = {"smoke", 65536u, 100, 0};
+    PlatformWindowDesc too_tall = {"smoke", 100, 65536u, 0};
+    const PlatformWindowDesc *descs[] = {&too_wide, &too_tall};
+    for (size_t i = 0; i < 2; i++) {
+        PlatformWindow *w = poison;
+        EngineResult result = platform_window_create(&w, platform, NULL, descs[i]);
+        if (result == ENGINE_RESULT_SUCCESS) {
+            platform_window_destroy(w);   /* the check below fails; do not leak */
+        }
+        CHECK(result == ENGINE_RESULT_NOT_SUPPORTED, "case %zu returned %s, expected NOT_SUPPORTED", i, engine_result_name(result));
+        CHECK(w == NULL, "case %zu left *out_window non-NULL", i);
+    }
+    platform_shutdown(platform);
+    return 0;
+}
 #endif
 
 static const TestCase tests[] = {
@@ -276,6 +306,7 @@ static const TestCase tests[] = {
     {"unit/platform_smoke: event queue coalesces, bounds and purges", test_event_queue},
 #if defined(__linux__)
     {"unit/platform_smoke: platform_init probes before allocating", test_init_probes_before_allocating},
+    {"unit/platform_smoke: oversize window size is refused", test_oversize_window_is_refused},
 #endif
 };
 

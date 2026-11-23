@@ -32,7 +32,6 @@
 #include <limits.h>
 #include <poll.h>
 #include <stdatomic.h>
-#include <stdio.h>
 #include <string.h>
 
 #include <X11/Xatom.h>
@@ -59,9 +58,6 @@ typedef struct X11Platform {
     Atom           wm_state;
     Atom           net_wm_name;
     Atom           utf8_string;
-    XIOErrorHandler previous_io_handler;  /* restored in x11_close (Decision 6 fallback) */
-    atomic_bool    io_lost;              /* set by the exit handler, any thread */
-    atomic_int     io_errno;
 } X11Platform;
 
 typedef struct X11Window {
@@ -85,9 +81,9 @@ static int x11_io_error_handler(Display *display) {
 /* Runs inside an Xlib call, possibly on a presentation thread: it records the
  * loss and nothing else. The platform thread does the rest in x11_check_lost. */
 static void x11_io_exit_handler(Display *display, void *user_data) {
-    X11Platform *x11 = user_data;
-    atomic_store(&x11->io_errno, errno);
-    atomic_store(&x11->io_lost, true);
+    PlatformLoss *loss = user_data;
+    atomic_store(&loss->error, errno);
+    atomic_store(&loss->lost, true);
     /* [2]: _XIOError took the display's user lock and never releases it, since
      * libX11 expects this handler to exit. We return instead, so balance it
      * ([3]), or another thread's XPending, XFlush or XCloseDisplay would block
@@ -96,14 +92,8 @@ static void x11_io_exit_handler(Display *display, void *user_data) {
     XUnlockDisplay(display);
 }
 
-/* Moves a recorded loss into the shared lost state. True once the Platform is lost. */
 static bool x11_check_lost(X11Platform *x11) {
-    if (!x11->base.lost && atomic_load(&x11->io_lost)) {
-        char detail[64];
-        (void)snprintf(detail, sizeof detail, "I/O error, errno %d", atomic_load(&x11->io_errno));
-        platform_linux_enter_lost(&x11->base, detail);
-    }
-    return x11->base.lost;
+    return platform_linux_check_lost(&x11->base);
 }
 
 /* ---- Events (PLATFORM-043, -050, -052) ------------------------------------ */
@@ -232,6 +222,15 @@ static void x11_wait(Platform *platform, uint64_t timeout_ns) {
 
 /* ---- Lifecycle (Decisions 2, 4, 6) ----------------------------------------- */
 
+/* Installs the loss protection on a freshly opened display: the process-global
+ * I/O-error handler (Decision 6 fallback) and the per-Display exit handler,
+ * whose data is `loss`. Until adopt moves the record into the Platform, `loss`
+ * is the connection's, so atom round-trips and cleanup are protected too. */
+static void x11_protect(Display *display, PlatformLoss *loss) {
+    loss->saved_handler = (void (*)(void))XSetIOErrorHandler(x11_io_error_handler);
+    XSetIOErrorExitHandler(display, x11_io_exit_handler, loss);
+}
+
 /* PLATFORM-033: the probe allocates nothing from an EngineAllocator. */
 static EngineResult x11_connect(const EngineLogger *logger, PlatformConnection *out_connection) {
     (void)logger;   /* ENGINE_LOG_WARN compiles away at high ENGINE_LOG_COMPILE_MIN_LEVEL */
@@ -248,11 +247,14 @@ static EngineResult x11_connect(const EngineLogger *logger, PlatformConnection *
         return ENGINE_RESULT_NOT_SUPPORTED;
     }
     out_connection->display = (PlatformNativeObject *)display;
+    x11_protect(display, &out_connection->loss);
     return ENGINE_RESULT_SUCCESS;
 }
 
+/* Closes a connection that was never adopted and restores the global handler. */
 static void x11_disconnect(PlatformConnection *connection) {
     XCloseDisplay((Display *)connection->display);
+    XSetIOErrorHandler((XIOErrorHandler)connection->loss.saved_handler);
 }
 
 static EngineResult x11_adopt(Platform *platform, PlatformConnection *connection) {
@@ -263,16 +265,15 @@ static EngineResult x11_adopt(Platform *platform, PlatformConnection *connection
     x11->wm_state = XInternAtom(display, "WM_STATE", False);
     x11->net_wm_name = XInternAtom(display, "_NET_WM_NAME", False);
     x11->utf8_string = XInternAtom(display, "UTF8_STRING", False);
-    if (!x11->wm_protocols || !x11->wm_delete_window || !x11->wm_state || !x11->net_wm_name || !x11->utf8_string) {
-        ENGINE_LOG_WARN(platform->logger, "Platform", "X11: the server did not intern the required atoms");
-        return ENGINE_RESULT_NOT_SUPPORTED;
+    if (atomic_load(&connection->loss.lost) || !x11->wm_protocols || !x11->wm_delete_window ||
+        !x11->wm_state || !x11->net_wm_name || !x11->utf8_string) {
+        ENGINE_LOG_WARN(platform->logger, "Platform", "X11: the connection was lost or the server did not intern the required atoms");
+        return ENGINE_RESULT_NOT_SUPPORTED;   /* the caller disconnects */
     }
     x11->display = display;
-    atomic_init(&x11->io_lost, false);
-    atomic_init(&x11->io_errno, 0);
     x11->connection_fd = ConnectionNumber(display);
-    x11->previous_io_handler = XSetIOErrorHandler(x11_io_error_handler);
-    XSetIOErrorExitHandler(display, x11_io_exit_handler, x11);
+    platform_loss_move(&platform->loss, &connection->loss);
+    XSetIOErrorExitHandler(display, x11_io_exit_handler, &platform->loss);   /* the record now lives here */
     return ENGINE_RESULT_SUCCESS;
 }
 
@@ -282,7 +283,7 @@ static EngineResult x11_adopt(Platform *platform, PlatformConnection *connection
 static void x11_close(Platform *platform) {
     X11Platform *x11 = (X11Platform *)platform;
     XCloseDisplay(x11->display);
-    XSetIOErrorHandler(x11->previous_io_handler);
+    XSetIOErrorHandler((XIOErrorHandler)platform->loss.saved_handler);
 }
 
 /* ---- Windows (PLATFORM-041..044, Decision 3) -------------------------------- */
@@ -292,6 +293,17 @@ static EngineResult x11_window_open(PlatformWindow *base, const PlatformWindowDe
     X11Platform *x11 = (X11Platform *)base->platform;
     Display *display = x11->display;
     int screen = DefaultScreen(display);
+
+    /* X11 encodes window sizes in 16 bits: 65536 would wrap to 0 and the server's
+     * BadValue would reach Xlib's default error handler, which exits. A backend
+     * limit is an OS failure, so NOT_SUPPORTED (PLATFORM-034, -041), checked
+     * before any request. */
+    if (desc->width > UINT16_MAX || desc->height > UINT16_MAX) {
+        ENGINE_LOG_ERROR(base->platform->logger, "Platform",
+                         "platform_window_create: %ux%u exceeds the X11 limit of %u per axis",
+                         (unsigned)desc->width, (unsigned)desc->height, (unsigned)UINT16_MAX);
+        return ENGINE_RESULT_NOT_SUPPORTED;
+    }
 
     /* Logical units are pixels on X11 (PLATFORM-042). */
     window->width = desc->width;
@@ -335,17 +347,18 @@ static EngineResult x11_window_open(PlatformWindow *base, const PlatformWindowDe
         bool lost = x11_check_lost(x11);   /* before any Xlib call: a loss may already be recorded */
         if (!lost) {
             x11_drain(x11);
+            lost = x11_check_lost(x11);   /* a loss found while draining beats a MapNotify read before it */
         }
-        if (window->mapped) {
+        if (!lost && window->mapped) {
             break;
         }
         uint64_t now = platform_time_now_ns();
-        if (lost || x11_check_lost(x11) || now >= deadline) {
-            if (!x11->base.lost) {
+        if (lost || now >= deadline) {
+            if (!lost) {
                 XDestroyWindow(display, window->xid);
                 XFlush(display);
             }
-            ENGINE_LOG_ERROR(base->platform->logger, "Platform", "platform_window_create: the window was not mapped in time");
+            ENGINE_LOG_ERROR(base->platform->logger, "Platform", "platform_window_create: the window was not mapped in time or the connection was lost");
             return ENGINE_RESULT_NOT_SUPPORTED;
         }
         x11_poll(x11->connection_fd, deadline - now);
@@ -356,7 +369,7 @@ static EngineResult x11_window_open(PlatformWindow *base, const PlatformWindowDe
 
 static void x11_window_close(PlatformWindow *base) {
     X11Platform *x11 = (X11Platform *)base->platform;
-    if (!x11->base.lost && !atomic_load(&x11->io_lost)) {
+    if (!x11->base.lost && !atomic_load(&x11->base.loss.lost)) {
         XDestroyWindow(x11->display, ((X11Window *)base)->xid);
         XFlush(x11->display);
     }
