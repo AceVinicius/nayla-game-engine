@@ -219,6 +219,13 @@ cmd_pr_wait() {
     gh_q api --paginate "repos/$REPO/pulls/$pr/comments" \
         -q ".[]|select(.in_reply_to_id==null and .commit_id == \"$head\")|\"  [\" + .path + \":\" + ((.line // .original_line)|tostring) + \"] (id \" + (.id|tostring) + \") \" + .body"
     gh_q pr view "$pr" --repo "$REPO" --json mergeStateStatus -q '"merge state: " + .mergeStateStatus'
+    # gh pr checks follows the live head; the reviews above are pinned to $head.
+    # A push during the wait would mix the two, so success needs the same head.
+    local now; now="$(gh_q pr view "$pr" --repo "$REPO" --json headRefOid -q .headRefOid)"
+    if [ "$now" != "$head" ]; then
+        echo "head changed during the wait (${head:0:7} -> ${now:0:7}, or unknown): rerun pr-wait"
+        [ $rc -eq 0 ] && rc=10
+    fi
     return $rc
 }
 
