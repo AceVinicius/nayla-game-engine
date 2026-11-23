@@ -83,6 +83,6 @@ Independent tasks run in parallel (one agent per task, each in its own worktree)
 ## Source of Truth
 
 - Spec/architecture → `docs/`
-- Work definition → GitHub issues (`tasks/done/` keeps tasks 001–013 as history)
+- Work definition → GitHub issues
 - Current behavior → source + tests
 - Decisions → ADRs

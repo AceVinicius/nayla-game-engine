@@ -126,6 +126,6 @@ tools/factory test all
 
 ## Status
 
-Currently configuring basic repository structure. See [tasks/001-configure-repository.md](tasks/001-configure-repository.md).
+Foundation (result, allocator, logging), core and renderer skeletons, and the Platform API are in place; the macOS platform backend is implemented and conformance-tested. Linux and Win32 backends and the GPU API are in progress.
 
-No game engine implementation yet—only tooling and structure.
+Work is tracked in [GitHub issues](https://github.com/AceVinicius/nayla-game-engine/issues).
