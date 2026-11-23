@@ -9,13 +9,14 @@ How every implementation, test, build, spec and architecture agent works and rep
 - Never revert with `git checkout`/`git restore` while you have uncommitted work: back up the file and restore the copy, or use `tools/factory prove`.
 
 ## Verify
+- Before reporting, self-check every class in `rules/defects.md` that applies to your change. It lists what review keeps finding.
 - `tools/factory check`: Debug and Release, warnings as errors, full ctest. Zero warnings is the bar.
 - Every new or changed check is proven: inject a real violation, see it fail, restore. Use `tools/factory prove`; it backs up, rebuilds cleanly and confirms the restore.
 - Report what you could not verify (another OS, MSVC, GCC, no display) explicitly. Never claim it passed.
 
 ## Output budget
 - Never dump build logs, full diffs or whole files into context. Pipe through `grep -E 'warning|error'`, `tail`, or read line ranges.
-- Read specs by rule ID or section, not end to end, unless the task is a spec review.
+- Read specs by rule ID or section, not end to end, unless the task is a spec review: `tools/factory toc <spec>`, then `tools/factory rule <ID>…`.
 
 ## Report (final message, in this order)
 1. Branch and commit hash.
