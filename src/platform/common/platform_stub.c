@@ -1,9 +1,7 @@
 /* Lifecycle, window and event entry points for backends that have no window
- * system implementation yet, compiled only into those backends (win32, linux).
- * The same behaviour on every such OS, written once here:
- *   - TEMPORARY for Win32, until its window task (#34) replaces it;
- *   - PERMANENT for Linux, until the Linux windowing ADR (#28) lands.
- * macOS links its real implementation instead (src/platform/macos/).
+ * system implementation yet, compiled only into those backends (win32).
+ * TEMPORARY, until the Win32 window task (#34) replaces it.
+ * macOS and Linux link their real implementations instead.
  * No Platform or PlatformWindow is ever constructed here. Every entry point
  * therefore validates its arguments, and any handle it receives is one it
  * must reject or ignore. */
@@ -38,17 +36,9 @@ EngineResult platform_window_create(PlatformWindow **out_window,
                                     Platform *platform,
                                     const EngineAllocator *allocator,
                                     const PlatformWindowDesc *desc) {
-    if (!out_window) {
-        return ENGINE_RESULT_INVALID_ARGUMENT;
-    }
-    *out_window = NULL;
-
-    /* PLATFORM-041 validation. */
-    if (!platform || !desc || !desc->title || desc->width == 0 || desc->height == 0 ||
-        (desc->flags & ~PLATFORM_WINDOW_RESIZABLE) != 0 || !platform_resolve_allocator(allocator)) {
-        return ENGINE_RESULT_INVALID_ARGUMENT;
-    }
-    return ENGINE_RESULT_NOT_SUPPORTED;
+    const EngineAllocator *resolved = NULL;
+    EngineResult checked = platform_window_create_check(out_window, platform, allocator, desc, &resolved);
+    return checked != ENGINE_RESULT_SUCCESS ? checked : ENGINE_RESULT_NOT_SUPPORTED;
 }
 
 void platform_window_destroy(PlatformWindow *window) {

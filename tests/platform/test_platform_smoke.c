@@ -5,6 +5,7 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "src/platform/api.h"
 #include "src/platform/native.h"
@@ -166,6 +167,54 @@ static int test_null_tolerance(void) {
     return 0;
 }
 
+/* PLATFORM-041 (ADR-012 Decision 3): every invalid UTF-8 form becomes one U+FFFD. */
+static int test_title_sanitize(void) {
+    static const struct { const char *in; const char *out; } rows[] = {
+        {"plain", "plain"},
+        {"\xC3\xA9\xE2\x82\xAC\xF0\x9F\x98\x80", "\xC3\xA9\xE2\x82\xAC\xF0\x9F\x98\x80"},   /* valid 2, 3, 4 bytes */
+        {"a\x80z", "a\xEF\xBF\xBDz"},                  /* stray continuation */
+        {"\xC0\xAF", "\xEF\xBF\xBD\xEF\xBF\xBD"},        /* overlong */
+        {"\xED\xA0\x80", "\xEF\xBF\xBD\xEF\xBF\xBD\xEF\xBF\xBD"}, /* surrogate */
+        {"\xF4\x90\x80\x80", "\xEF\xBF\xBD\xEF\xBF\xBD\xEF\xBF\xBD\xEF\xBF\xBD"}, /* > U+10FFFF */
+        {"ab\xE2\x82", "ab\xEF\xBF\xBD\xEF\xBF\xBD"},    /* truncated at the NUL */
+        {"", ""},
+    };
+    for (size_t i = 0; i < sizeof rows / sizeof rows[0]; i++) {
+        char *got = platform_title_sanitize(engine_default_allocator(), rows[i].in);
+        CHECK(got != NULL, "row %zu: sanitize returned NULL", i);
+        CHECK(strcmp(got, rows[i].out) == 0, "row %zu: wrong output", i);
+        engine_free(engine_default_allocator(), got);
+    }
+    return 0;
+}
+
+/* PLATFORM-052/053: coalescing, the capacity bound, purge and FIFO order. */
+static int test_event_queue(void) {
+    PlatformEventQueue queue;
+    CHECK_OK(platform_queue_init(&queue, engine_default_allocator()));
+    PlatformWindow *a = (PlatformWindow *)(uintptr_t)0x10;   /* identity only, never dereferenced */
+    PlatformWindow *b = (PlatformWindow *)(uintptr_t)0x20;
+    platform_queue_push(&queue, NULL, a, PLATFORM_EVENT_WINDOW_FRAMEBUFFER_RESIZED, 1, 1);
+    platform_queue_push(&queue, NULL, b, PLATFORM_EVENT_WINDOW_FRAMEBUFFER_RESIZED, 2, 2);
+    platform_queue_push(&queue, NULL, a, PLATFORM_EVENT_WINDOW_FRAMEBUFFER_RESIZED, 3, 3);
+    CHECK(queue.count == 2, "a second resize for one window was not coalesced");
+    platform_queue_push(&queue, NULL, a, PLATFORM_EVENT_WINDOW_CLOSE_REQUESTED, 0, 0);
+    platform_queue_purge_window(&queue, b);
+    CHECK(queue.count == 2, "purge removed the wrong events");
+
+    PlatformEvent event = {0};
+    CHECK(platform_queue_pop(&queue, &event) && event.window == a && event.width == 3, "first event is not a's updated resize");
+    CHECK(platform_queue_pop(&queue, &event) && event.type == PLATFORM_EVENT_WINDOW_CLOSE_REQUESTED, "second event is not the close");
+    CHECK(!platform_queue_pop(&queue, &event), "pop returned true on an empty queue");
+
+    for (uint32_t i = 0; i < PLATFORM_EVENT_QUEUE_CAPACITY + 5; i++) {
+        platform_queue_push(&queue, NULL, a, PLATFORM_EVENT_WINDOW_CLOSE_REQUESTED, 0, 0);
+    }
+    CHECK(queue.count == PLATFORM_EVENT_QUEUE_CAPACITY, "queue exceeded its capacity");
+    platform_queue_destroy(&queue, engine_default_allocator());
+    return 0;
+}
+
 static const TestCase tests[] = {
     {"unit/platform_smoke: time is non-decreasing and never UINT64_MAX", test_time_non_decreasing},
     {"unit/platform_smoke: thread id is non-zero and stable", test_thread_id_non_zero_and_stable},
@@ -174,6 +223,8 @@ static const TestCase tests[] = {
     {"unit/platform_smoke: platform_init argument rules", test_platform_init_rules},
     {"unit/platform_smoke: platform_window_create validation order", test_window_create_rules},
     {"unit/platform_smoke: NULL tolerance", test_null_tolerance},
+    {"unit/platform_smoke: title sanitising replaces invalid UTF-8", test_title_sanitize},
+    {"unit/platform_smoke: event queue coalesces, bounds and purges", test_event_queue},
 };
 
 int main(void) {
