@@ -95,7 +95,7 @@ cmd_test() {
 # reviewer can build a branch without touching any checkout.
 cmd_check() {
     if [ $# -gt 0 ]; then
-        [ "$1" = --ref ] && [ -n "${2:-}" ] || die "usage: factory check [--ref <branch|commit>]"
+        [ $# -eq 2 ] && [ "$1" = --ref ] && [ -n "$2" ] || die "usage: factory check [--ref <branch|commit>]"
         local tree
         tree="$(mktemp -d)" || die "cannot create a temporary directory"
         git -C "$PROJECT_DIR" worktree add -q --detach "$tree" "$2" 2>/dev/null \
@@ -280,6 +280,7 @@ cmd_rule() {
     [ $# -ge 1 ] || die "usage: factory rule <ID>... (e.g. PLAT-INV-3 CORE-LOG-010)"
     local files id status=0
     files="$(find "$PROJECT_DIR/docs" -name '*.md' | sort)"
+    [ -n "$files" ] || die "no docs/**/*.md under $PROJECT_DIR"
     for id in "$@"; do
         # shellcheck disable=SC2086 # one path per line, no spaces in docs/
         awk -v id="$id" -v root="$PROJECT_DIR/" '

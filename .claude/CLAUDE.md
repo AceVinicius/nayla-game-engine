@@ -84,7 +84,7 @@ The main session is the most expensive context: every step re-reads its whole hi
 - `main` is protected: always green, changes only through PRs.
 - One branch per task: `task/NNN-short-name` (NNN = GitHub issue number). Chores: `chore/...`.
 - Create the issue first (`task-planner`, issue template `task`); the PR body says `Closes #N`.
-- Before opening a PR: `tools/factory check` (Debug + Release, zero warnings) and a `reviewer` pass.
+- Before opening a PR: `tools/factory check` green (Debug + Release, zero warnings; run by the implementer, or by the reviewer via `check --ref`) and a `reviewer` pass.
 - CI must pass. Squash-merge; the branch is deleted on merge.
 
 ## Source of Truth

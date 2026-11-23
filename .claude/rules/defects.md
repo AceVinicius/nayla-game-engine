@@ -6,7 +6,7 @@ paths:
   - "tools/**"
   - "**/CMakeLists.txt"
   - ".github/workflows/**"
-  - "docs/adr/**"
+  - "docs/**"
 ---
 
 # Known Defect Classes
